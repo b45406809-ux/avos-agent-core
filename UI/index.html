@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>AVOS Agent Studio</title>
+  <style>
+    body { font-family: monospace; background: #0d1117; color: #c9d1d9; margin: 20px; }
+    input, textarea, button { background: #161b22; color: #58a6ff; border: 1px solid #30363d; padding: 10px; margin: 5px 0; width: 100%; box-sizing: border-box; }
+    button { background: #238636; color: #fff; cursor: pointer; font-weight: bold; }
+    #terminal { background: #000; border: 1px solid #30363d; padding: 15px; height: 350px; overflow-y: auto; white-space: pre-wrap; margin-top: 15px; }
+  </style>
+</head>
+<body>
+  <h2>AVOS Agent Control Plane</h2>
+  <input id="pat" type="password" placeholder="GitHub Personal Access Token (PAT)" />
+  <input id="secret" type="password" placeholder="AGENT_UI_SECRET" />
+  <input id="repo" type="text" placeholder="Target Repo (e.g. username/avos)" />
+  <textarea id="prompt" rows="3" placeholder="/goal Refactor auth and run tests..."></textarea>
+  <button onclick="dispatchGoal()">Run /goal Agent</button>
+
+  <div id="terminal">> Awaiting agent dispatch...</div>
+
+  <script>
+    // Restore saved settings
+    document.getElementById('pat').value = localStorage.getItem('gh_pat') || '';
+    document.getElementById('secret').value = localStorage.getItem('ui_secret') || '';
+    document.getElementById('repo').value = localStorage.getItem('target_repo') || '';
+
+    async function dispatchGoal() {
+      const pat = document.getElementById('pat').value;
+      const secret = document.getElementById('secret').value;
+      const repo = document.getElementById('repo').value;
+      const prompt = document.getElementById('prompt').value;
+
+      localStorage.setItem('gh_pat', pat);
+      localStorage.setItem('ui_secret', secret);
+      localStorage.setItem('target_repo', repo);
+
+      const terminal = document.getElementById('terminal');
+      terminal.innerText = `[Dispatching] Sending /goal to GitHub Actions...\n`;
+
+      // Trigger GHA workflow
+      const res = await fetch(`https://api.github.com/repos/YOUR_USERNAME/avos-agent-core/actions/workflows/agent.yml/dispatches`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${pat}`,
+          'Accept': 'application/vnd.github+json'
+        },
+        body: JSON.stringify({
+          ref: 'main',
+          inputs: {
+            target_repo: repo,
+            target_branch: 'main',
+            user_prompt: prompt,
+            ui_secret: secret
+          }
+        })
+      });
+
+      if (res.ok) {
+        terminal.innerText += `✔ GHA Sandbox triggered successfully! Polling live output in 10s...\n`;
+        startStreamPolling(pat);
+      } else {
+        terminal.innerText += `❌ Dispatch Failed: ${res.statusText}\n`;
+      }
+    }
+
+    function startStreamPolling(pat) {
+      setInterval(async () => {
+        try {
+          const res = await fetch(`https://api.github.com/repos/YOUR_USERNAME/avos-agent-core/contents/.agent/live_stream.jsonl`, {
+            headers: { 'Authorization': `Bearer ${pat}` }
+          });
+          const data = await res.json();
+          const raw = atob(data.content);
+          const lines = raw.trim().split('\n');
+          const terminal = document.getElementById('terminal');
+          terminal.innerText = lines.map(l => {
+            const ev = JSON.parse(l);
+            return `[${ev.type.toUpperCase()}] ${ev.text || ev.name || ev.summary || ''}`;
+          }).join('\n');
+          terminal.scrollTop = terminal.scrollHeight;
+        } catch (e) {}
+      }, 8000);
+    }
+  </script>
+</body>
+</html>
