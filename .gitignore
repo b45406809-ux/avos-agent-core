@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Swarm Runtime & Isolated Worktrees
+.worktrees/
+.agent/
+workspace/
+
+# Environment & API Keys
+.env
+.env.local
+*.log
+
+# System & Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
