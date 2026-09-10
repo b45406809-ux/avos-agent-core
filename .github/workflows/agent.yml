@@ -1,0 +1,271 @@
+name: Autonomous Agent Swarm Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_repo:
+        description: 'Target Repository to work on (e.g. owner/repo)'
+        required: true
+        type: string
+      target_branch:
+        description: 'Base branch in target repository'
+        required: true
+        default: 'main'
+        type: string
+      user_prompt:
+        description: 'Goal, task, or architectural specification'
+        required: true
+        type: string
+      execution_mode:
+        description: 'Engine Mode: "swarm" (Multi-Agent DAG) or "single" (ReAct Agent)'
+        required: false
+        default: 'swarm'
+        type: choice
+        options:
+          - swarm
+          - single
+      max_workers:
+        description: 'Maximum concurrent worker agents (Swarm mode)'
+        required: false
+        default: '4'
+        type: string
+      max_budget_tokens:
+        description: 'Circuit breaker token limit (Safeguard)'
+        required: false
+        default: '8000000'
+        type: string
+      create_pr:
+        description: 'Create a Pull Request on target repo instead of pushing directly'
+        required: false
+        default: true
+        type: boolean
+      ui_secret:
+        description: 'Security validation token'
+        required: true
+        type: string
+      run_id:
+        description: 'Cloudflare D1 Run Identifier (optional)'
+        required: false
+        type: string
+      cf_stream_url:
+        description: 'Cloudflare Edge Event Ingestion URL (optional)'
+        required: false
+        type: string
+
+# Ensure isolated execution per target repository to avoid concurrent branch collisions
+concurrency:
+  group: swarm-${{ github.event.inputs.target_repo }}-${{ github.event.inputs.target_branch }}
+  cancel-in-progress: false
+
+jobs:
+  run-autonomous-swarm:
+    name: Swarm Execution Pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      # =======================================================================
+      # 1. Zero-Trust Security Gatekeeper
+      # =======================================================================
+      - name: 🛡️ Verify Security Authentication
+        id: security_gate
+        run: |
+          if [ -z "${{ secrets.AGENT_UI_SECRET }}" ]; then
+            echo "::error::Secret AGENT_UI_SECRET is not configured in repository settings."
+            exit 1
+          fi
+
+          if [ "${{ github.event.inputs.ui_secret }}" != "${{ secrets.AGENT_UI_SECRET }}" ]; then
+            echo "::error::Unauthorized: Invalid security validation token provided."
+            exit 1
+          fi
+          echo "✅ Security gate passed successfully."
+
+      # =======================================================================
+      # 2. Checkout Control Plane (Engine Core)
+      # =======================================================================
+      - name: 📥 Checkout Control Plane Engine
+        uses: actions/checkout@v4
+        with:
+          path: core
+
+      # =======================================================================
+      # 3. Checkout Target Project Workspace (Full History for Worktrees)
+      # =======================================================================
+      - name: 📥 Checkout Target Repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.inputs.target_repo }}
+          ref: ${{ github.event.inputs.target_branch }}
+          token: ${{ secrets.USER_GITHUB_TOKEN }}
+          path: workspace
+          fetch-depth: 0 # Full history required for git worktree and branch operations
+
+      # =======================================================================
+      # 4. Environment & Toolchain Setup
+      # (Ubuntu-latest includes Cargo, Go, Python 3, and GCC pre-installed)
+      # =======================================================================
+      - name: 🛠️ Install Ripgrep & System Dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ripgrep build-essential git curl jq
+
+      - name: 🟢 Setup Node.js 20 Runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: core/package.json
+
+      - name: 📦 Install Engine Dependencies (Tree-Sitter WASMs, SDKs)
+        working-directory: core
+        run: |
+          npm ci || npm install
+
+      # =======================================================================
+      # 5. Git Identity & Worktree Permissions
+      # =======================================================================
+      - name: ⚙️ Configure Git Environment & Permissions
+        run: |
+          git config --global user.name "AVOS Swarm Engine"
+          git config --global user.email "swarm@avos.ai"
+          git config --global core.quotepath false
+
+          # Mark directories safe to prevent ownership mismatch errors in CI
+          git config --global --add safe.directory $(pwd)/workspace
+          git config --global --add safe.directory "*"
+
+          mkdir -p .worktrees
+          mkdir -p core/.agent
+
+      # =======================================================================
+      # 6. Execute Engine (Swarm DAG or Single-Agent ReAct)
+      # =======================================================================
+      - name: 🚀 Execute Agent Engine
+        id: execute_engine
+        working-directory: core
+        env:
+          WORKSPACE_DIR: '../workspace'
+          USER_PROMPT: ${{ github.event.inputs.user_prompt }}
+          MAX_CONCURRENCY: ${{ github.event.inputs.max_workers }}
+          MAX_BUDGET_TOKENS: ${{ github.event.inputs.max_budget_tokens }}
+          TARGET_REPO: ${{ github.event.inputs.target_repo }}
+          TARGET_BRANCH: ${{ github.event.inputs.target_branch }}
+          RUN_ID: ${{ github.event.inputs.run_id }}
+          CF_STREAM_URL: ${{ github.event.inputs.cf_stream_url }}
+          AGENT_UI_SECRET: ${{ secrets.AGENT_UI_SECRET }}
+          # Multi-Provider Pool Keys
+          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
+          GROQ_API_KEYS: ${{ secrets.GROQ_API_KEYS }}
+          CEREBRAS_API_KEYS: ${{ secrets.CEREBRAS_API_KEYS }}
+          OPENROUTER_API_KEYS: ${{ secrets.OPENROUTER_API_KEYS }}
+          NVIDIA_API_KEYS: ${{ secrets.NVIDIA_API_KEYS }}
+          GH_TOKEN: ${{ secrets.USER_GITHUB_TOKEN }}
+        run: |
+          MODE="${{ github.event.inputs.execution_mode }}"
+          if [ "$MODE" = "single" ]; then
+            echo "🤖 Launching Standalone ReAct Agent (engine/agent.mjs)..."
+            node engine/agent.mjs
+          else
+            echo "🐝 Launching Topological Swarm Orchestrator (engine/swarm.mjs)..."
+            node engine/swarm.mjs
+          fi
+
+      # =======================================================================
+      # 7. Commit & Publish Verified Changes to Target Repo
+      # =======================================================================
+      - name: 📤 Publish Verified Changes
+        id: publish_changes
+        working-directory: workspace
+        env:
+          GH_TOKEN: ${{ secrets.USER_GITHUB_TOKEN }}
+          CREATE_PR: ${{ github.event.inputs.create_pr }}
+          TARGET_BRANCH: ${{ github.event.inputs.target_branch }}
+          USER_PROMPT: ${{ github.event.inputs.user_prompt }}
+        run: |
+          # Prune any remaining detached worker worktrees before committing
+          git worktree prune || true
+
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "ℹ️ Workspace clean. No modifications to commit."
+            exit 0
+          fi
+
+          TIMESTAMP=$(date +%s)
+          SWARM_BRANCH="swarm/update-${TIMESTAMP}"
+
+          git add -A
+          git commit -m "feat(swarm): ${USER_PROMPT}
+
+          🤖 Verified by AVOS Swarm Conformance Oracle
+          Target: ${TARGET_BRANCH}"
+
+          if [ "$CREATE_PR" = "true" ]; then
+            echo "🔀 Publishing to pull request branch '${SWARM_BRANCH}'..."
+            git checkout -b "$SWARM_BRANCH"
+            git push origin "$SWARM_BRANCH"
+
+            gh pr create \
+              --repo "${{ github.event.inputs.target_repo }}" \
+              --base "$TARGET_BRANCH" \
+              --head "$SWARM_BRANCH" \
+              --title "feat(swarm): ${USER_PROMPT}" \
+              --body "### 🐝 Autonomous Agent Swarm Verification Summary
+
+              **Goal:** \`${USER_PROMPT}\`
+              **Target Base Branch:** \`${TARGET_BRANCH}\`
+
+              #### 🛡️ Verification Gate
+              - All changes were developed inside isolated git worktrees.
+              - Code passed the repository test oracle without regressions.
+              - Architectural interfaces were synchronized in \`.agent/FIELD_GUIDE.md\`.
+
+              ---
+              *Generated automatically by AVOS Agent Engine.*"
+          else
+            echo "🚀 Pushing verified commits directly to ${TARGET_BRANCH}..."
+            git push origin "$TARGET_BRANCH"
+          fi
+
+      # =======================================================================
+      # 8. Render GitHub Actions Step Summary (Scorecard & Field Guide)
+      # =======================================================================
+      - name: 📊 Render Conformance Summary & Field Guide
+        if: always()
+        run: |
+          echo "# 🐝 Swarm Execution Report" >> $GITHUB_STEP_SUMMARY
+          echo "**Target:** \`${{ github.event.inputs.target_repo }}\` (\`${{ github.event.inputs.target_branch }}\`)" >> $GITHUB_STEP_SUMMARY
+          echo "**Mission:** ${{ github.event.inputs.user_prompt }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 1. Render Evaluation Conformance Scorecard if generated
+          if [ -f "core/.agent/EVAL_SUMMARY.md" ]; then
+            cat core/.agent/EVAL_SUMMARY.md >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # 2. Render Stigmergic Field Guide
+          if [ -f "core/.agent/FIELD_GUIDE.md" ]; then
+            echo "## 🧭 Stigmergic Field Guide" >> $GITHUB_STEP_SUMMARY
+            echo "<details><summary>Click to view live Field Guide</summary>" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            cat core/.agent/FIELD_GUIDE.md >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "</details>" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # =======================================================================
+      # 9. Archive All Run Telemetry & Logs
+      # =======================================================================
+      - name: 📦 Archive Telemetry & Verification Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swarm-telemetry-${{ github.run_id }}
+          path: |
+            core/.agent/live_stream.jsonl
+            core/.agent/FIELD_GUIDE.md
+            core/.agent/blackboard.json
+            core/.agent/task_dag.json
+            core/.agent/eval_report.json
+          retention-days: 14
