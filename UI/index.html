@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AVOS Autonomous Swarm Control Plane</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Top Navigation & Global Status Header -->
+  <header>
+    <div class="title-group">
+      <h1>🐝 AVOS Swarm Control Plane</h1>
+      <span class="badge" id="status-badge">Standby</span>
+    </div>
+    <div>
+      <span class="badge" id="run-counter">0 Actions Polled</span>
+    </div>
+  </header>
+
+  <!-- Main Split Dashboard Layout -->
+  <main>
+    <!-- Left Panel: Parameter Configuration & Dispatcher -->
+    <section class="panel">
+      <div class="panel-header">
+        <span>Mission Parameters</span>
+      </div>
+      <div class="panel-body">
+        <div>
+          <label for="gh_pat">GitHub Personal Access Token (PAT)</label>
+          <input type="password" id="gh_pat" placeholder="ghp_..." autocomplete="off">
+        </div>
+
+        <div>
+          <label for="control_repo">Control Plane Repository (Runner)</label>
+          <input type="text" id="control_repo" placeholder="owner/avos-agent-core">
+        </div>
+
+        <div>
+          <label for="ui_secret">Security Validation Secret</label>
+          <input type="password" id="ui_secret" placeholder="Matches AGENT_UI_SECRET">
+        </div>
+
+        <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 4px 0;">
+
+        <div>
+          <label for="target_repo">Target Repository</label>
+          <input type="text" id="target_repo" placeholder="owner/target-project">
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <label for="target_branch">Target Branch</label>
+            <input type="text" id="target_branch" value="main">
+          </div>
+          <div>
+            <label for="execution_mode">Engine Mode</label>
+            <select id="execution_mode">
+              <option value="swarm">Topological Swarm (DAG)</option>
+              <option value="single">Single-Agent ReAct</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <label for="max_workers">Worker Concurrency</label>
+            <input type="number" id="max_workers" value="4" min="1" max="16">
+          </div>
+          <div>
+            <label for="max_budget_tokens">Token Budget Limit</label>
+            <input type="number" id="max_budget_tokens" value="8000000" step="500000">
+          </div>
+        </div>
+
+        <div>
+          <label for="create_pr">Publish Target</label>
+          <select id="create_pr">
+            <option value="true">Create Pull Request (PR)</option>
+            <option value="false">Direct Commit &amp; Push</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="user_prompt">Mission Goal / Architectural Task</label>
+          <textarea id="user_prompt" rows="5" placeholder="e.g. Implement a high-performance B-Tree page split algorithm and verify against the test oracle..."></textarea>
+        </div>
+
+        <button id="dispatch-btn" onclick="dispatchSwarm()">
+          <span>🚀 Launch Autonomous Mission</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Right Panel: Real-Time Stream Terminal -->
+    <section class="panel" id="terminal-container">
+      <div class="panel-header">
+        <span>Live Telemetry &amp; Verification Stream</span>
+        <button class="btn-sm" onclick="clearTerminal()">Clear Stream</button>
+      </div>
+      <div id="terminal">
+        <div class="log-row" style="color: var(--text-muted);">
+          &gt; Operator terminal ready. Enter target repository and goal to launch.
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Client-Side Controller -->
+  <script type="module" src="app.js"></script>
+</body>
+            </html>
