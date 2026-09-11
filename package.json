@@ -9,7 +9,8 @@
     "swarm": "node engine/swarm.mjs",
     "agent": "node engine/agent.mjs",
     "eval": "node harness/eval_runner.mjs",
-    "test": "node --check engine/*.mjs harness/*.mjs"
+    "test": "node --check engine/*.mjs harness/*.mjs",
+    "deploy": "wrangler deploy"
   },
   "keywords": [
     "ai-agent",
@@ -30,5 +31,8 @@
     "openai": "^4.86.1",
     "tree-sitter-wasms": "^0.1.11",
     "web-tree-sitter": "^0.22.6"
+  },
+  "devDependencies": {
+    "wrangler": "^4.86.0"
   }
 }
