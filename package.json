@@ -1,0 +1,34 @@
+{
+  "name": "avos-agent-core",
+  "version": "1.0.0",
+  "description": "Autonomous multi-agent coding swarm and execution engine with Tree-Sitter project maps, Git worktree isolation, and test oracle verification.",
+  "type": "module",
+  "main": "engine/swarm.mjs",
+  "scripts": {
+    "start": "node engine/swarm.mjs",
+    "swarm": "node engine/swarm.mjs",
+    "agent": "node engine/agent.mjs",
+    "eval": "node harness/eval_runner.mjs",
+    "test": "node --check engine/*.mjs harness/*.mjs"
+  },
+  "keywords": [
+    "ai-agent",
+    "swarm",
+    "autonomous-coding",
+    "tree-sitter",
+    "git-worktrees",
+    "llm-orchestrator",
+    "cursor-swarm",
+    "claude-code"
+  ],
+  "author": "AVOS AI Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "openai": "^4.86.1",
+    "tree-sitter-wasms": "^0.1.11",
+    "web-tree-sitter": "^0.22.6"
+  }
+}
