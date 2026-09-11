@@ -1,82 +1,68 @@
--- ============================================================================
--- Cloudflare D1 Edge SQLite Schema for AVOS Agent Core
--- ============================================================================
+-- schema.sql
 
--- Drop existing tables during clean migrations if needed
--- DROP TABLE IF EXISTS task_states;
--- DROP TABLE IF EXISTS field_guides;
--- DROP TABLE IF EXISTS events;
--- DROP TABLE IF EXISTS runs;
-
--- ----------------------------------------------------------------------------
--- 1. Mission Runs Table
--- Tracks every autonomous execution dispatch, target repo, and completion state.
--- ----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS runs (
-    id TEXT PRIMARY KEY,                       -- e.g. "run_1773288000_abc12"
-    target_repo TEXT NOT NULL,                 -- e.g. "owner/project-repo"
+-- 1. Conversation Sessions (Scoped 1 repo per session)
+CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    target_repo TEXT NOT NULL,
     target_branch TEXT NOT NULL DEFAULT 'main',
-    user_prompt TEXT NOT NULL,                 -- User goal / architectural task
-    execution_mode TEXT NOT NULL DEFAULT 'swarm', -- 'swarm' (DAG) or 'single' (ReAct)
-    status TEXT NOT NULL DEFAULT 'queued',     -- 'queued', 'in_progress', 'completed', 'failed'
-    created_at INTEGER NOT NULL,               -- Unix epoch timestamp (ms)
-    finished_at INTEGER,                       -- Unix epoch timestamp (ms)
-    token_usage_json TEXT DEFAULT '{}',        -- Aggregated prompt/completion tokens
-    summary TEXT                               -- Final run completion summary
+    custom_env_json TEXT DEFAULT '{}',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
 );
 
--- Index for fast reverse-chronological dashboard queries
-CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
+CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at DESC);
 
--- ----------------------------------------------------------------------------
--- 2. Telemetry & Live Event Stream Table
--- Powers the real-time Server-Sent Events (SSE) stream to the web UI.
--- ----------------------------------------------------------------------------
+-- 2. Chat Message History (Multi-turn conversations)
+CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    role TEXT NOT NULL, -- 'user', 'assistant', 'system'
+    content TEXT NOT NULL,
+    timestamp INTEGER NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, id ASC);
+
+-- 3. Execution Runs
+CREATE TABLE IF NOT EXISTS runs (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    target_repo TEXT NOT NULL,
+    target_branch TEXT NOT NULL DEFAULT 'main',
+    user_prompt TEXT NOT NULL,
+    execution_mode TEXT NOT NULL DEFAULT 'single',
+    status TEXT NOT NULL DEFAULT 'queued', -- queued, in_progress, completed, failed
+    created_at INTEGER NOT NULL,
+    finished_at INTEGER,
+    token_usage_json TEXT DEFAULT '{}',
+    summary TEXT,
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_runs_session ON runs(session_id);
+
+-- 4. Real-time Telemetry Stream Events
 CREATE TABLE IF NOT EXISTS events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,      -- Monotonically increasing event sequence ID
-    run_id TEXT NOT NULL,                      -- References runs(id)
-    timestamp INTEGER NOT NULL,                -- Unix epoch timestamp (ms)
-    type TEXT NOT NULL,                        -- 'init', 'thought', 'tool_start', 'tool_end', 'test_verify', etc.
-    agent_id TEXT NOT NULL,                    -- 'ORCHESTRATOR', 'PLANNER', 'WORKER-1', 'REFEREE', 'GOVERNOR'
-    payload_json TEXT NOT NULL DEFAULT '{}',   -- Tool arguments, stdout/stderr, diff snippets
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL,
+    session_id TEXT,
+    timestamp INTEGER NOT NULL,
+    type TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
     FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE
 );
 
--- Compound index optimized for SSE polling: "WHERE run_id = ? AND id > ? ORDER BY id ASC"
 CREATE INDEX IF NOT EXISTS idx_events_run_id_seq ON events(run_id, id ASC);
 
--- ----------------------------------------------------------------------------
--- 3. Dynamic Field Guide (Stigmergy Blackboard)
--- Persists the generated architectural map, entry points, and worker contracts.
--- ----------------------------------------------------------------------------
+-- 5. Stigmergic Field Guides
 CREATE TABLE IF NOT EXISTS field_guides (
-    run_id TEXT PRIMARY KEY,                   -- References runs(id)
-    detected_stack TEXT DEFAULT 'Unknown',     -- e.g. "Rust (Cargo)", "TypeScript (Node.js)"
-    package_manager TEXT DEFAULT 'Unknown',    -- e.g. "cargo", "pnpm", "npm", "pytest"
-    test_command TEXT DEFAULT '',              -- e.g. "cargo test", "npm test"
-    content_md TEXT NOT NULL,                  -- Full live FIELD_GUIDE.md markdown
-    contracts_json TEXT DEFAULT '{}',          -- Registered module interfaces (Stigmergy)
-    updated_at INTEGER NOT NULL,               -- Unix epoch timestamp (ms)
-    FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE
+    session_id TEXT PRIMARY KEY,
+    detected_stack TEXT DEFAULT 'Unknown',
+    test_command TEXT DEFAULT '',
+    content_md TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
-
--- ----------------------------------------------------------------------------
--- 4. Task DAG & Verification State Table
--- Tracks individual atomic units of work decomposed by the Lead Architect.
--- ----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS task_states (
-    run_id TEXT NOT NULL,                      -- References runs(id)
-    task_id TEXT NOT NULL,                     -- e.g. "TASK-01", "TASK-02"
-    description TEXT NOT NULL,
-    files_targeted_json TEXT DEFAULT '[]',     -- JSON array of relative paths
-    dependencies_json TEXT DEFAULT '[]',       -- JSON array of prerequisite task IDs
-    verification_command TEXT NOT NULL,        -- Assigned test oracle command
-    status TEXT NOT NULL DEFAULT 'PENDING',    -- 'PENDING', 'IN_PROGRESS', 'VERIFIED', 'FAILED'
-    summary TEXT DEFAULT '',
-    updated_at INTEGER NOT NULL,               -- Unix epoch timestamp (ms)
-    PRIMARY KEY (run_id, task_id),
-    FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_task_states_run_id ON task_states(run_id);
