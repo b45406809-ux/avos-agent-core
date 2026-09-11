@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>AVOS AI Agent Studio</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div class="app-layout">
+    <!-- Left Sidebar: Sessions & Settings -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">🐝 <span>AVOS Agent</span></div>
+        <button class="icon-btn close-sidebar-btn" onclick="toggleSidebar()">✕</button>
+      </div>
+
+      <button class="new-chat-btn" onclick="createNewSession()">
+        <span>+ New Session</span>
+      </button>
+
+      <div class="sidebar-section">
+        <div class="section-title">Recent Sessions</div>
+        <div class="session-list" id="recent-sessions">
+          <div class="session-placeholder">No past sessions</div>
+        </div>
+        <button class="view-all-btn" onclick="openModal('sessions-modal')">View All Sessions ↗</button>
+      </div>
+
+      <div class="sidebar-footer">
+        <button class="settings-trigger-btn" onclick="openModal('settings-modal')">
+          ⚙️ <span>Settings &amp; Secrets</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Chat Workspace -->
+    <main class="chat-workspace">
+      <!-- Chat Header -->
+      <header class="chat-header">
+        <div class="header-left">
+          <button class="icon-btn mobile-menu-btn" onclick="toggleSidebar()">☰</button>
+          <div class="session-info">
+            <h2 id="current-repo-title">Select or Start a Session</h2>
+            <span class="branch-tag" id="current-branch-tag">main</span>
+          </div>
+        </div>
+
+        <div class="header-right">
+          <span class="status-badge" id="status-badge">Standby</span>
+          <button class="stop-btn" id="stop-btn" onclick="stopExecution()" style="display: none;">⏹ Stop</button>
+        </div>
+      </header>
+
+      <!-- Scrollable Message Feed -->
+      <div class="chat-feed" id="chat-feed">
+        <div class="welcome-card" id="welcome-card">
+          <h3>Welcome to AVOS Agent</h3>
+          <p>Autonomous software engineering swarm operating on live repositories.</p>
+          <div class="quick-tips">
+            <span>💡 Click <b>Settings &amp; Secrets</b> to configure target repo and Cloudflare keys.</span>
+            <span>💡 Each session is scoped to one repository with continuous multi-turn memory.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom Chat Input Bar -->
+      <footer class="chat-input-bar">
+        <div class="input-container">
+          <textarea id="user-input" rows="1" placeholder="Ask a question or describe a task..." onkeydown="handleInputKey(event)"></textarea>
+          <button class="send-btn" id="send-btn" onclick="submitMessage()">
+            <span>▲</span>
+          </button>
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- MODAL: Settings & Secrets Configuration                               -->
+  <!-- ===================================================================== -->
+  <div class="modal-overlay" id="settings-modal" style="display: none;">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3>⚙️ Settings &amp; Custom Secrets</h3>
+        <button class="icon-btn" onclick="closeModal('settings-modal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Security UI Secret (Matches AGENT_UI_SECRET)</label>
+          <input type="password" id="ui_secret" placeholder="Your secret passphrase">
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Target Repository</label>
+            <input type="text" id="target_repo" placeholder="owner/repo">
+          </div>
+          <div class="form-group">
+            <label>Target Branch</label>
+            <input type="text" id="target_branch" value="main">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Execution Mode</label>
+            <select id="execution_mode">
+              <option value="single">Single-Agent ReAct</option>
+              <option value="swarm">Multi-Worker Swarm (DAG)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Publish Target</label>
+            <select id="create_pr">
+              <option value="false">Direct Commit &amp; Push</option>
+              <option value="true">Pull Request (PR)</option>
+            </select>
+          </div>
+        </div>
+
+        <hr class="divider">
+
+        <div class="form-group">
+          <div class="env-header">
+            <label>Custom Environment Variables (.env secret injection)</label>
+            <button class="btn-xs" onclick="addEnvRow()">+ Add Secret</button>
+          </div>
+          <div class="env-table" id="env-table"></div>
+          <span class="help-text">Auto-exported into the runner subshell so commands like <code>wrangler deploy</code> can access them without reading them in chat.</span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-primary" onclick="saveSettings()">Save &amp; Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- MODAL: All Sessions Explorer                                          -->
+  <!-- ===================================================================== -->
+  <div class="modal-overlay" id="sessions-modal" style="display: none;">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3>📁 All Conversation Sessions</h3>
+        <button class="icon-btn" onclick="closeModal('sessions-modal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="text" id="session-search" placeholder="Search sessions..." oninput="filterSessions()">
+        <div class="all-sessions-list" id="all-sessions-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
