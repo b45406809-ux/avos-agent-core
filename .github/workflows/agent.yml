@@ -1,0 +1,216 @@
+name: Autonomous Agent Swarm Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_repo:
+        description: 'Target Repository (e.g. owner/repo)'
+        required: true
+        type: string
+      target_branch:
+        description: 'Base branch in target repository'
+        required: true
+        default: 'main'
+        type: string
+      user_prompt:
+        description: 'User message or goal'
+        required: true
+        type: string
+      session_id:
+        description: 'Session ID'
+        required: true
+        type: string
+      execution_mode:
+        description: 'Engine Mode'
+        required: false
+        default: 'single'
+        type: choice
+        options:
+          - single
+          - swarm
+      max_workers:
+        required: false
+        default: '4'
+        type: string
+      max_budget_tokens:
+        required: false
+        default: '8000000'
+        type: string
+      create_pr:
+        required: false
+        default: false
+        type: boolean
+      ui_secret:
+        required: true
+        type: string
+      run_id:
+        required: true
+        type: string
+      cf_stream_url:
+        required: true
+        type: string
+      custom_env_json:
+        description: 'Custom Environment Variables JSON'
+        required: false
+        default: '{}'
+        type: string
+
+concurrency:
+  group: swarm-${{ github.event.inputs.target_repo }}-${{ github.event.inputs.session_id }}
+  cancel-in-progress: true
+
+jobs:
+  run-agent:
+    name: Swarm Execution Pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      # =======================================================================
+      # 1. Zero-Trust Security Gate (Instant check)
+      # =======================================================================
+      - name: 🛡️ Security Gate Check
+        run: |
+          if [ -z "${{ secrets.AGENT_UI_SECRET }}" ] || [ "${{ github.event.inputs.ui_secret }}" != "${{ secrets.AGENT_UI_SECRET }}" ]; then
+            echo "::error::Unauthorized validation secret"
+            exit 1
+          fi
+
+      # =======================================================================
+      # 2. Fast Shallow Checkouts (Takes ~2-3 seconds)
+      # =======================================================================
+      - name: 📥 Checkout Control Plane Engine
+        uses: actions/checkout@v4
+        with:
+          path: core
+          fetch-depth: 1
+
+      - name: 📥 Checkout Target Repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.inputs.target_repo }}
+          ref: ${{ github.event.inputs.target_branch }}
+          token: ${{ secrets.USER_GITHUB_TOKEN }}
+          path: workspace
+          fetch-depth: 1 # Shallow checkout is 10x faster
+
+      # =======================================================================
+      # 3. Setup Node.js 20 & Instant Corepack
+      # =======================================================================
+      - name: 🟢 Setup Node.js 20 Runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: core/package.json
+
+      - name: ⚡ Enable Corepack (Instant pnpm & yarn, zero download time)
+        run: |
+          corepack enable
+          # ripgrep, git, jq, curl, and build-essential are ALREADY pre-installed on ubuntu-latest!
+
+      # =======================================================================
+      # 4. Install Engine Dependencies (Cached via setup-node)
+      # =======================================================================
+      - name: 📦 Install Engine Dependencies
+        working-directory: core
+        run: npm ci --prefer-offline || npm install
+
+      # =======================================================================
+      # 5. Git Identity & Worktree Permissions (Instant)
+      # =======================================================================
+      - name: ⚙️ Configure Git & Worktrees
+        run: |
+          git config --global user.name "AVOS Agent"
+          git config --global user.email "agent@avos.ai"
+          git config --global --add safe.directory $(pwd)/workspace
+          git config --global --add safe.directory "*"
+          mkdir -p .worktrees core/.agent
+
+      # =======================================================================
+      # 6. Execute Autonomous Agent Engine
+      # =======================================================================
+      - name: 🚀 Run Autonomous Agent Engine
+        working-directory: core
+        env:
+          WORKSPACE_DIR: '../workspace'
+          USER_PROMPT: ${{ github.event.inputs.user_prompt }}
+          SESSION_ID: ${{ github.event.inputs.session_id }}
+          RUN_ID: ${{ github.event.inputs.run_id }}
+          CF_STREAM_URL: ${{ github.event.inputs.cf_stream_url }}
+          AGENT_UI_SECRET: ${{ secrets.AGENT_UI_SECRET }}
+          CUSTOM_ENV_JSON: ${{ github.event.inputs.custom_env_json }}
+          MAX_CONCURRENCY: ${{ github.event.inputs.max_workers }}
+          MAX_BUDGET_TOKENS: ${{ github.event.inputs.max_budget_tokens }}
+          TARGET_REPO: ${{ github.event.inputs.target_repo }}
+          TARGET_BRANCH: ${{ github.event.inputs.target_branch }}
+          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
+          GROQ_API_KEYS: ${{ secrets.GROQ_API_KEYS }}
+          CEREBRAS_API_KEYS: ${{ secrets.CEREBRAS_API_KEYS }}
+          OPENROUTER_API_KEYS: ${{ secrets.OPENROUTER_API_KEYS }}
+          NVIDIA_API_KEYS: ${{ secrets.NVIDIA_API_KEYS }}
+          GH_TOKEN: ${{ secrets.USER_GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event.inputs.execution_mode }}" = "swarm" ]; then
+            node engine/swarm.mjs
+          else
+            node engine/agent.mjs
+          fi
+
+      # =======================================================================
+      # 7. Commit & Push Code Changes
+      # =======================================================================
+      - name: 📤 Commit & Push Code Changes
+        if: success()
+        working-directory: workspace
+        env:
+          GH_TOKEN: ${{ secrets.USER_GITHUB_TOKEN }}
+          CREATE_PR: ${{ github.event.inputs.create_pr }}
+          TARGET_BRANCH: ${{ github.event.inputs.target_branch }}
+          USER_PROMPT: ${{ github.event.inputs.user_prompt }}
+        run: |
+          git worktree prune || true
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -A
+            git commit -m "feat: ${USER_PROMPT}"
+            if [ "$CREATE_PR" = "true" ]; then
+              BRANCH="swarm/update-$(date +%s)"
+              git checkout -b "$BRANCH"
+              git push origin "$BRANCH"
+              gh pr create --repo "${{ github.event.inputs.target_repo }}" --base "$TARGET_BRANCH" --head "$BRANCH" --title "feat: ${USER_PROMPT}" --body "Automated changes by AVOS Agent."
+            else
+              git push origin "$TARGET_BRANCH"
+            fi
+          fi
+
+      # =======================================================================
+      # 8. Failure Notification Webhook
+      # =======================================================================
+      - name: 🚨 Notify Failure to Cloudflare Edge
+        if: failure()
+        run: |
+          curl -s -X POST "${{ github.event.inputs.cf_stream_url }}" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.AGENT_UI_SECRET }}" \
+            -d "{\"runId\": \"${{ github.event.inputs.run_id }}\", \"event\": {\"type\": \"error\", \"agentId\": \"GITHUB_RUNNER\", \"data\": {\"error\": \"GitHub Actions runner failed during setup or execution. Please inspect GitHub Actions job logs for step details.\"}}}" || true
+
+      # =======================================================================
+      # 9. Step Summary & Artifact Archival
+      # =======================================================================
+      - name: 📊 Render Step Summary
+        if: always()
+        run: |
+          echo "# 🐝 Swarm Execution Report" >> $GITHUB_STEP_SUMMARY
+          echo "**Target:** \`${{ github.event.inputs.target_repo }}\` (\`${{ github.event.inputs.target_branch }}\`)" >> $GITHUB_STEP_SUMMARY
+          if [ -f "core/.agent/FIELD_GUIDE.md" ]; then
+            echo "## 🧭 Stigmergic Field Guide" >> $GITHUB_STEP_SUMMARY
+            cat core/.agent/FIELD_GUIDE.md >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: 📦 Archive Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swarm-telemetry-${{ github.run_id }}
+          path: core/.agent/
+          retention-days: 14
