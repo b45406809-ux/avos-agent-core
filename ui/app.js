@@ -234,9 +234,11 @@ window.createNewSession = createNewSession;
 /* Conversational Stream & Dispatch                                           */
 /* -------------------------------------------------------------------------- */
 function handleInputKey(e) {
-  if (e.key === "Enter" && !e.shiftKey) {
+  if (e.key === "Enter" && e.shiftKey) {
+    return;
+  }
+  if (e.key === "Enter") {
     e.preventDefault();
-    submitMessage();
   }
 }
 window.handleInputKey = handleInputKey;
