@@ -6,6 +6,7 @@ DROP TABLE IF EXISTS field_guides;
 DROP TABLE IF EXISTS events;
 DROP TABLE IF EXISTS runs;
 DROP TABLE IF EXISTS messages;
+DROP TABLE IF EXISTS ai_responses;
 DROP TABLE IF EXISTS sessions;
 
 -- 1. Conversation Sessions (1 repo per session)
@@ -30,6 +31,19 @@ CREATE TABLE sessions (
                                                 timestamp INTEGER NOT NULL,
                                                     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
                                                     );
+
+                                                    CREATE TABLE ai_responses (
+                                                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                                            session_id TEXT NOT NULL,
+                                                                run_id TEXT NOT NULL,
+                                                                    content TEXT NOT NULL,
+                                                                        timestamp INTEGER NOT NULL,
+                                                                            order_index INTEGER NOT NULL,
+                                                                                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                                                                                    FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE
+                                                                                    );
+
+                                                                                    CREATE INDEX idx_ai_responses_session_run ON ai_responses(session_id, run_id, order_index ASC);
 
                                                     CREATE INDEX idx_messages_session ON messages(session_id, id ASC);
 
