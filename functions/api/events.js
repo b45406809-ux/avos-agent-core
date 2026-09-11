@@ -71,6 +71,21 @@ export async function onRequestPost(context) {
               .bind(sessionId, `❌ Error: ${payloadObj.error || payloadObj.message || "Execution failed."}`, timestamp)
           );
         }
+      } else if (sessionId && type === "thought" && payloadObj.thought) {
+        statements.push(
+          env.DB.prepare(`INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, 'assistant', ?, ?)`)
+            .bind(sessionId, `_Thought:_ ${payloadObj.thought}`, timestamp)
+        );
+      } else if (sessionId && type === "tool_code" && payloadObj.code) {
+        statements.push(
+          env.DB.prepare(`INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, 'assistant', ?, ?)`)
+            .bind(sessionId, `_Tool Code:_\n\`\`\`javascript\n${payloadObj.code}\n\`\`\``, timestamp)
+        );
+      } else if (sessionId && type === "tool_output" && payloadObj.output) {
+        statements.push(
+          env.DB.prepare(`INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, 'assistant', ?, ?)`)
+            .bind(sessionId, `_Tool Output:_\n\`\`\`\n${payloadObj.output}\n\`\`\``, timestamp)
+        );
       }
     }
 
