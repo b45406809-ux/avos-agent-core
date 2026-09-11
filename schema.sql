@@ -66,3 +66,18 @@ CREATE TABLE field_guides (
     updated_at INTEGER NOT NULL,
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
+
+-- 5. Events Table
+CREATE TABLE events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    run_id TEXT,
+    type TEXT NOT NULL, -- e.g., 'task_started', 'task_completed', 'error'
+    data TEXT DEFAULT '{}', -- Additional event data
+    timestamp INTEGER NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_events_session ON events(session_id, id ASC);
+CREATE INDEX idx_events_run ON events(run_id, id ASC);
