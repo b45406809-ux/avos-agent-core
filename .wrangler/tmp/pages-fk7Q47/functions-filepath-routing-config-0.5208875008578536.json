@@ -1,0 +1,53 @@
+{
+  "routes": [
+    {
+      "routePath": "/api/dispatch",
+      "mountPath": "/api",
+      "method": "OPTIONS",
+      "module": [
+        "api/dispatch.js:onRequestOptions"
+      ]
+    },
+    {
+      "routePath": "/api/dispatch",
+      "mountPath": "/api",
+      "method": "POST",
+      "module": [
+        "api/dispatch.js:onRequestPost"
+      ]
+    },
+    {
+      "routePath": "/api/events",
+      "mountPath": "/api",
+      "method": "OPTIONS",
+      "module": [
+        "api/events.js:onRequestOptions"
+      ]
+    },
+    {
+      "routePath": "/api/events",
+      "mountPath": "/api",
+      "method": "POST",
+      "module": [
+        "api/events.js:onRequestPost"
+      ]
+    },
+    {
+      "routePath": "/api/stream",
+      "mountPath": "/api",
+      "method": "GET",
+      "module": [
+        "api/stream.js:onRequestGet"
+      ]
+    },
+    {
+      "routePath": "/api/stream",
+      "mountPath": "/api",
+      "method": "OPTIONS",
+      "module": [
+        "api/stream.js:onRequestOptions"
+      ]
+    }
+  ],
+  "baseURL": "/"
+}
