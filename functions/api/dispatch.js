@@ -115,21 +115,23 @@ export async function onRequestPost(context) {
           "User-Agent": "AVOS-Cloudflare-ControlPlane",
           "Content-Type": "application/json"
         },
+        // In functions/api/dispatch.js:
         body: JSON.stringify({
           ref: "main",
-          inputs: {
-            target_repo: target_repo.trim(),
-            target_branch: target_branch.trim(),
-            user_prompt: user_prompt.trim(),
-            execution_mode,
-            max_workers: String(max_workers),
-            max_budget_tokens: String(max_budget_tokens),
-            create_pr: Boolean(create_pr),
-            ui_secret,
-            run_id: runId,
-            cf_stream_url: streamCallbackUrl
-          }
-        })
+            inputs: {
+                target_repo: target_repo.trim(),
+                    target_branch: target_branch.trim(),
+                        user_prompt: user_prompt.trim(),
+                            execution_mode: String(execution_mode),
+                                max_workers: String(max_workers),
+                                    max_budget_tokens: String(max_budget_tokens),
+                                        create_pr: String(create_pr),          // <-- Must be a String, not Boolean
+                                            ui_secret: String(ui_secret),
+                                                run_id: String(runId),
+                                                    cf_stream_url: String(streamCallbackUrl)
+                                                      }
+                                                      })
+        
       }
     );
 
