@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>AVOS AI Agent Studio</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- Backdrop overlay for mobile drawer & modals -->
+  <div class="drawer-backdrop" id="drawer-backdrop" onclick="toggleSidebar(false)"></div>
+
+  <div class="app-shell">
+    
+    <!-- ================================================================= -->
+    <!-- TOP NAVIGATION BAR (Always Visible on Mobile & Desktop)          -->
+    <!-- ================================================================= -->
+    <header class="top-nav">
+      <div class="nav-left">
+        <button class="icon-btn mobile-menu-btn" onclick="toggleSidebar(true)" aria-label="Open Navigation">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+        </button>
+        <div class="brand">
+          <div class="brand-logo">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+          </div>
+          <span class="brand-name">AVOS</span>
+          <span class="brand-tag">SWARM</span>
+        </div>
+
+        <div class="nav-divider"></div>
+
+        <!-- Current Target Repo Indicator -->
+        <button class="repo-pill" onclick="openModal('settings-modal')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>
+          <span id="current-repo-title">Select Repository</span>
+          <span class="pill-branch" id="current-branch-tag">main</span>
+        </button>
+      </div>
+
+      <div class="nav-right">
+        <!-- Live Run Indicator -->
+        <div class="status-indicator" id="status-badge">
+          <span class="status-dot"></span>
+          <span class="status-label" id="status-label">Standby</span>
+        </div>
+
+        <!-- Emergency Stop Execution Button -->
+        <button class="stop-btn" id="stop-btn" onclick="stopExecution()" style="display: none;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+          <span>Stop</span>
+        </button>
+
+        <!-- PROMINENT SETTINGS BUTTON IN MAIN HEADER -->
+        <button class="settings-nav-btn" onclick="openModal('settings-modal')" aria-label="Settings">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span>Settings</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="workspace-body">
+      
+      <!-- =============================================================== -->
+      <!-- LEFT SIDEBAR: Sessions Drawer                                   -->
+      <!-- =============================================================== -->
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-top">
+          <button class="new-chat-btn" onclick="createNewSession()">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+            <span>New Session</span>
+          </button>
+        </div>
+
+        <div class="sidebar-content">
+          <div class="section-label">
+            <span>Recent Sessions</span>
+          </div>
+          <div class="session-list" id="recent-sessions">
+            <div class="session-empty">No active sessions</div>
+          </div>
+        </div>
+
+        <div class="sidebar-bottom">
+          <button class="sidebar-btn" onclick="openModal('sessions-modal')">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            <span>All Sessions</span>
+          </button>
+          <button class="sidebar-btn" onclick="openModal('settings-modal')">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span>Configuration &amp; Secrets</span>
+          </button>
+        </div>
+      </aside>
+
+      <!-- =============================================================== -->
+      <!-- MAIN CONVERSATION WORKSPACE                                     -->
+      <!-- =============================================================== -->
+      <main class="chat-viewport">
+        <div class="chat-scroll" id="chat-feed">
+          
+          <!-- Hero Welcome Card for New Sessions -->
+          <div class="welcome-hero" id="welcome-card">
+            <div class="hero-badge">AVOS AUTONOMOUS ENGINE</div>
+            <h2>What should the swarm build today?</h2>
+            <p>Select your target repository and describe an architectural mission, refactoring goal, or bug.</p>
+
+            <div class="starter-grid">
+              <div class="starter-card" onclick="setQuickPrompt('Analyze the full codebase architecture, detect entry points, and document in the Field Guide.')">
+                <div class="card-icon">🗺️</div>
+                <div class="card-title">Analyze Architecture</div>
+                <div class="card-desc">Scan Tree-sitter AST signatures and map all dependencies</div>
+              </div>
+              <div class="starter-card" onclick="setQuickPrompt('Run the project test suite, locate any failing tests or compiler errors, and self-heal the code.')">
+                <div class="card-icon">🧪</div>
+                <div class="card-title">Test &amp; Self-Heal</div>
+                <div class="card-desc">Run oracle checks and automatically fix broken unit tests</div>
+              </div>
+              <div class="starter-card" onclick="setQuickPrompt('Perform a code quality audit, clean up unused imports, and standardize error handling.')">
+                <div class="card-icon">⚡</div>
+                <div class="card-title">Refactor &amp; Polish</div>
+                <div class="card-desc">Surgical multi-file cleanup without regression</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Floating Chat Input Bar -->
+        <div class="chat-input-wrapper">
+          <div class="input-card">
+            <div class="input-meta-bar">
+              <div class="mode-pill" id="mode-pill" onclick="openModal('settings-modal')">
+                <span class="mode-dot"></span>
+                <span id="active-mode-label">Single-Agent</span>
+              </div>
+              <div class="token-pill" id="token-counter">0 tokens</div>
+            </div>
+            
+            <div class="textarea-row">
+              <textarea 
+                id="user-input" 
+                rows="1" 
+                placeholder="Give the agent a goal or ask about your codebase..." 
+                onkeydown="handleInputKey(event)"
+                oninput="autoResizeTextarea(this)"
+              ></textarea>
+              <button class="send-btn" id="send-btn" onclick="submitMessage()" aria-label="Send Message">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- MODAL: Settings & Custom Secrets (Click ⚙️ to Open)                   -->
+  <!-- ===================================================================== -->
+  <div class="modal-backdrop" id="settings-modal" style="display: none;" onclick="handleBackdropClick(event, 'settings-modal')">
+    <div class="modal-card">
+      <div class="modal-top">
+        <div class="modal-title-group">
+          <div class="modal-icon">⚙️</div>
+          <div>
+            <h3>Settings &amp; Secrets</h3>
+            <p>Configure repository targets and inject hidden runtime secrets</p>
+          </div>
+        </div>
+        <button class="icon-btn" onclick="closeModal('settings-modal')">✕</button>
+      </div>
+
+      <div class="modal-scrollable">
+        <div class="form-section">
+          <div class="section-heading">Authentication &amp; Security</div>
+          <div class="form-group">
+            <label for="ui_secret">Security UI Secret (Matches AGENT_UI_SECRET)</label>
+            <input type="password" id="ui_secret" placeholder="Enter your passphrase">
+          </div>
+        </div>
+
+        <div class="form-section">
+          <div class="section-heading">Target Repository</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="target_repo">GitHub Repository</label>
+              <input type="text" id="target_repo" placeholder="owner/repo">
+            </div>
+            <div class="form-group">
+              <label for="target_branch">Target Branch</label>
+              <input type="text" id="target_branch" value="main">
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <div class="section-heading">Swarm Parameters</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="execution_mode">Execution Mode</label>
+              <select id="execution_mode">
+                <option value="single">Single-Agent ReAct (Focused)</option>
+                <option value="swarm">Topological Swarm (Parallel DAG)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="create_pr">Publish Action</label>
+              <select id="create_pr">
+                <option value="false">Direct Commit &amp; Push</option>
+                <option value="true">Create Pull Request (PR)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="max_workers">Worker Concurrency</label>
+              <input type="number" id="max_workers" value="4" min="1" max="16">
+            </div>
+            <div class="form-group">
+              <label for="max_budget_tokens">Budget Safeguard (Tokens)</label>
+              <input type="number" id="max_budget_tokens" value="8000000" step="500000">
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <div class="env-title-row">
+            <div class="section-heading">Custom Environment Secrets (.env Injection)</div>
+            <button class="btn-xs" onclick="addEnvRow()">+ Add Variable</button>
+          </div>
+          <p class="section-subtext">Injected into the runner subshell so commands like <code>wrangler deploy</code> work without exposing secrets to the AI model.</p>
+          
+          <div class="env-table" id="env-table">
+            <!-- Dynamically populated key-value rows -->
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn-secondary" onclick="closeModal('settings-modal')">Cancel</button>
+        <button class="btn-save" onclick="saveSettings()">Save &amp; Apply</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- MODAL: All Sessions History                                           -->
+  <!-- ===================================================================== -->
+  <div class="modal-backdrop" id="sessions-modal" style="display: none;" onclick="handleBackdropClick(event, 'sessions-modal')">
+    <div class="modal-card">
+      <div class="modal-top">
+        <div class="modal-title-group">
+          <div class="modal-icon">📁</div>
+          <div>
+            <h3>All Sessions</h3>
+            <p>Select any repository session to resume conversation</p>
+          </div>
+        </div>
+        <button class="icon-btn" onclick="closeModal('sessions-modal')">✕</button>
+      </div>
+      <div class="modal-scrollable">
+        <input type="text" id="session-search" class="search-input" placeholder="Search sessions by repository or title..." oninput="filterSessions()">
+        <div class="all-sessions-list" id="all-sessions-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
