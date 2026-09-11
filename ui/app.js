@@ -260,7 +260,52 @@ async function submitMessage() {
     return;
   }
 
-  input.value = "";
+  // Disable input and show loading state
+  input.disabled = true;
+  const submitBtn = document.getElementById("submit-btn");
+  if (submitBtn) submitBtn.disabled = true;
+  setRunStatus("loading", "Processing...");
+
+  try {
+    // Append user message immediately
+    appendChatBubble("user", prompt);
+    input.value = "";
+
+    // Prepare request payload
+    const payload = {
+      prompt,
+      uiSecret,
+      targetRepo,
+      targetBranch,
+      executionMode,
+      maxWorkers: parseInt(maxWorkers),
+      maxBudget: parseInt(maxBudget),
+      createPr,
+      customEnvs: JSON.parse(customEnvs)
+    };
+
+    // Submit to backend
+    const response = await fetch('/api/dispatch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+
+    const { runId } = await response.json();
+    connectStream(runId);
+  } catch (error) {
+    console.error("Submission failed:", error);
+    setRunStatus("error", `Failed: ${error.message}`);
+    appendChatBubble("system", `Error processing request: ${error.message}`);
+  } finally {
+    // Re-enable input
+    input.disabled = false;
+    if (submitBtn) submitBtn.disabled = false;
+  }
   input.style.height = "auto";
   document.getElementById("welcome-card")?.remove();
 
