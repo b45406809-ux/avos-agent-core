@@ -1,4 +1,3 @@
-// functions/api/sessions.js
 export async function onRequestGet(context) {
   const { request, env } = context;
   const url = new URL(request.url);
@@ -21,11 +20,21 @@ export async function onRequestGet(context) {
         return new Response(JSON.stringify({ error: "Session not found" }), { status: 404, headers: jsonHeaders });
       }
 
+      // Fetch both chat messages and streaming events
       const { results: messages } = await env.DB.prepare(
-        `SELECT role, content, timestamp FROM messages WHERE session_id = ? ORDER BY id ASC`
+        `SELECT role, type, content, timestamp FROM messages WHERE session_id = ? ORDER BY timestamp ASC`
       ).bind(sessionId).all();
 
-      return new Response(JSON.stringify({ session, messages: messages || [] }), { headers: jsonHeaders });
+      // Format messages for UI
+      const formattedMessages = messages.map(msg => ({
+        role: msg.role,
+        type: msg.type,
+        content: msg.content,
+        timestamp: msg.timestamp,
+        isStream: msg.type !== 'message' // Mark streaming messages
+      }));
+
+      return new Response(JSON.stringify({ session, messages: formattedMessages || [] }), { headers: jsonHeaders });
     }
 
     // 2. Fetch list of recent sessions for the sidebar
