@@ -1,7 +1,10 @@
 // functions/api/dispatch.js
 export async function onRequestPost(context) {
   const { request, env } = context;
-  const jsonHeaders = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
+  const jsonHeaders = {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": "*"
+  };
 
   try {
     const body = await request.json().catch(() => null);
@@ -22,7 +25,6 @@ export async function onRequestPost(context) {
       ui_secret
     } = body;
 
-    // Security Gatekeeper
     if (ui_secret !== env.AGENT_UI_SECRET) {
       return new Response(JSON.stringify({ error: "Unauthorized: Invalid UI secret passphrase." }), { status: 401, headers: jsonHeaders });
     }
@@ -33,9 +35,14 @@ export async function onRequestPost(context) {
 
     const now = Date.now();
     let sessId = session_id;
+    let existingSession = null;
 
-    // 1. Create session if not already existing
-    if (!sessId) {
+    // Check if session actually exists in D1 to prevent foreign key violations.
+    if (sessId) {
+      existingSession = await env.DB.prepare(`SELECT id FROM sessions WHERE id = ?`).bind(sessId).first();
+    }
+
+    if (!existingSession) {
       sessId = `sess_${now}_${Math.random().toString(36).substring(2, 7)}`;
       const title = user_prompt.slice(0, 40) + (user_prompt.length > 40 ? "..." : "");
       await env.DB.prepare(
@@ -46,20 +53,17 @@ export async function onRequestPost(context) {
       await env.DB.prepare(`UPDATE sessions SET updated_at = ? WHERE id = ?`).bind(now, sessId).run();
     }
 
-    // 2. Persist user message into conversation history
-    await env.DB.prepare(
-      `INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, 'user', ?, ?)`
-    ).bind(sessId, user_prompt.trim(), now).run();
-
     const runId = `run_${now}_${Math.random().toString(36).substring(2, 7)}`;
 
-    // 3. Insert run into D1
     await env.DB.prepare(
       `INSERT INTO runs (id, session_id, target_repo, target_branch, user_prompt, execution_mode, status, created_at)
        VALUES (?, ?, ?, ?, ?, ?, 'queued', ?)`
     ).bind(runId, sessId, target_repo.trim(), target_branch.trim(), user_prompt.trim(), execution_mode, now).run();
 
-    // 4. Trigger GitHub Actions Runner
+    await env.DB.prepare(
+      `INSERT INTO messages (session_id, run_id, role, type, content, timestamp) VALUES (?, ?, 'user', 'message', ?, ?)`
+    ).bind(sessId, runId, user_prompt.trim(), now).run();
+
     const controlRepo = env.CONTROL_REPO || "owner/avos-agent-core";
     const streamUrl = `${new URL(request.url).origin}/api/events`;
 
@@ -77,7 +81,7 @@ export async function onRequestPost(context) {
           target_repo: target_repo.trim(),
           target_branch: target_branch.trim(),
           user_prompt: user_prompt.trim(),
-          session_id: sessId,
+          session_id: String(sessId),
           execution_mode: String(execution_mode),
           max_workers: String(max_workers),
           max_budget_tokens: String(max_budget_tokens),

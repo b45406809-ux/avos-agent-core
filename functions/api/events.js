@@ -1,11 +1,7 @@
 // functions/api/events.js
 export async function onRequestPost(context) {
   const { request, env } = context;
-
-  const jsonHeaders = {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*"
-  };
+  const jsonHeaders = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
   try {
     const authHeader = request.headers.get("Authorization") || "";
@@ -26,7 +22,6 @@ export async function onRequestPost(context) {
       return new Response(JSON.stringify({ ok: true, processed: 0 }), { status: 200, headers: jsonHeaders });
     }
 
-    // Lookup session_id from runs table
     const runRecord = await env.DB.prepare(`SELECT session_id FROM runs WHERE id = ?`).bind(runId).first();
     const sessionId = runRecord?.session_id || null;
 
@@ -40,7 +35,6 @@ export async function onRequestPost(context) {
       const payloadObj = ev.data || {};
       const payloadJson = JSON.stringify(payloadObj);
 
-      // Record telemetry event
       statements.push(
         env.DB.prepare(
           `INSERT INTO events (run_id, session_id, timestamp, type, agent_id, payload_json)
@@ -48,7 +42,6 @@ export async function onRequestPost(context) {
         ).bind(runId, sessionId, timestamp, type, agentId, payloadJson)
       );
 
-      // Update run state and append assistant message to session history on completion/error
       if (type === "completed") {
         statements.push(
           env.DB.prepare(`UPDATE runs SET status = 'completed', finished_at = ?, summary = ? WHERE id = ?`)
@@ -56,8 +49,8 @@ export async function onRequestPost(context) {
         );
         if (sessionId) {
           statements.push(
-            env.DB.prepare(`INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, 'assistant', ?, ?)`)
-              .bind(sessionId, payloadObj.summary || "Task completed successfully.", timestamp)
+            env.DB.prepare(`INSERT INTO messages (session_id, run_id, role, type, content, timestamp) VALUES (?, ?, 'assistant', 'final', ?, ?)`)
+              .bind(sessionId, runId, payloadObj.summary || "Task completed successfully.", timestamp)
           );
         }
       } else if (type === "error") {
@@ -67,25 +60,10 @@ export async function onRequestPost(context) {
         );
         if (sessionId) {
           statements.push(
-            env.DB.prepare(`INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, 'assistant', ?, ?)`)
-              .bind(sessionId, `❌ Error: ${payloadObj.error || payloadObj.message || "Execution failed."}`, timestamp)
+            env.DB.prepare(`INSERT INTO messages (session_id, run_id, role, type, content, timestamp) VALUES (?, ?, 'assistant', 'error', ?, ?)`)
+              .bind(sessionId, runId, `❌ Error: ${payloadObj.error || payloadObj.message || "Execution failed."}`, timestamp)
           );
         }
-      } else if (sessionId && type === "thought" && payloadObj.thought) {
-        statements.push(
-          env.DB.prepare(`INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, 'assistant', ?, ?)`)
-            .bind(sessionId, `_Thought:_ ${payloadObj.thought}`, timestamp)
-        );
-      } else if (sessionId && type === "tool_code" && payloadObj.code) {
-        statements.push(
-          env.DB.prepare(`INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, 'assistant', ?, ?)`)
-            .bind(sessionId, `_Tool Code:_\n\`\`\`javascript\n${payloadObj.code}\n\`\`\``, timestamp)
-        );
-      } else if (sessionId && type === "tool_output" && payloadObj.output) {
-        statements.push(
-          env.DB.prepare(`INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, 'assistant', ?, ?)`)
-            .bind(sessionId, `_Tool Output:_\n\`\`\`\n${payloadObj.output}\n\`\`\``, timestamp)
-        );
       }
     }
 

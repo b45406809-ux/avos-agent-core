@@ -6,9 +6,14 @@ let eventSource = null;
 let activeToolCard = null;
 let allSessionsCache = [];
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   loadStoredSettings();
-  loadRecentSessions();
+  await loadRecentSessions();
+
+  const savedSessionId = localStorage.getItem("avos_active_session_id");
+  if (savedSessionId) {
+    await selectSession(savedSessionId);
+  }
 });
 
 /* -------------------------------------------------------------------------- */
@@ -17,7 +22,6 @@ document.addEventListener("DOMContentLoaded", () => {
 function toggleSidebar(forceState) {
   const sidebar = document.getElementById("sidebar");
   const backdrop = document.getElementById("drawer-backdrop");
-
   const isOpen = typeof forceState === "boolean" ? forceState : !sidebar.classList.contains("open");
 
   sidebar.classList.toggle("open", isOpen);
@@ -36,9 +40,7 @@ window.openModal = openModal;
 
 function closeModal(id) {
   const modal = document.getElementById(id);
-  if (modal) {
-    modal.style.display = "none";
-  }
+  if (modal) modal.style.display = "none";
 }
 window.closeModal = closeModal;
 
@@ -74,11 +76,10 @@ function loadStoredSettings() {
     if (val && el) el.value = val;
   });
 
-  // Render stored custom secrets (.env injection)
   const envs = JSON.parse(localStorage.getItem("avos_custom_envs") || "{}");
   const container = document.getElementById("env-table");
   container.innerHTML = "";
-  
+
   if (Object.keys(envs).length === 0) {
     addEnvRow("CLOUDFLARE_API_TOKEN", "");
   } else {
@@ -133,7 +134,7 @@ function updateHeaderRepoDisplay() {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Sessions Logic (1 Repo Per Session)                                        */
+/* Session History & Rehydration                                              */
 /* -------------------------------------------------------------------------- */
 async function loadRecentSessions() {
   try {
@@ -189,6 +190,8 @@ window.filterSessions = filterSessions;
 async function selectSession(sessionId) {
   if (eventSource) eventSource.close();
   currentSessionId = sessionId;
+  localStorage.setItem("avos_active_session_id", sessionId);
+
   toggleSidebar(false);
   closeModal("sessions-modal");
 
@@ -200,12 +203,42 @@ async function selectSession(sessionId) {
   document.getElementById("current-branch-tag").innerText = data.session.target_branch;
   document.getElementById("welcome-card")?.remove();
 
-  // Clear feed and append previous messages
   const feed = document.getElementById("chat-feed");
   feed.innerHTML = "";
-  data.messages.forEach(m => {
-    appendChatBubble(m.role, m.content);
-  });
+
+  if (data.messages && data.messages.length > 0) {
+    data.messages.filter(m => m.role === "user").forEach(m => {
+      appendChatBubble("user", m.content);
+    });
+  }
+
+  if (data.events && data.events.length > 0) {
+    const assistantContainer = document.createElement("div");
+    assistantContainer.className = "msg-wrapper msg-assistant";
+    feed.appendChild(assistantContainer);
+
+    data.events.forEach(ev => {
+      let payload = {};
+      try {
+        payload = typeof ev.payload_json === "string" ? JSON.parse(ev.payload_json) : (ev.payload_json || {});
+      } catch (_) {
+        payload = {};
+      }
+      renderEventToContainer(ev.type, ev.agent_id, payload, assistantContainer);
+    });
+  }
+
+  if (data.latestRun) {
+    currentRunId = data.latestRun.id;
+    if (data.latestRun.status === "queued" || data.latestRun.status === "in_progress") {
+      setRunStatus("running", "Agent Active");
+      connectStream(data.latestRun.id);
+    } else if (data.latestRun.status === "completed") {
+      setRunStatus("active", "Completed");
+    } else if (data.latestRun.status === "failed") {
+      setRunStatus("failed", "Failed");
+    }
+  }
 
   loadRecentSessions();
 }
@@ -215,7 +248,8 @@ function createNewSession() {
   if (eventSource) eventSource.close();
   currentSessionId = null;
   currentRunId = null;
-  
+  localStorage.removeItem("avos_active_session_id");
+
   const feed = document.getElementById("chat-feed");
   feed.innerHTML = `
     <div class="welcome-hero" id="welcome-card">
@@ -231,14 +265,12 @@ function createNewSession() {
 window.createNewSession = createNewSession;
 
 /* -------------------------------------------------------------------------- */
-/* Conversational Stream & Dispatch                                           */
+/* Conversational Dispatch & Stream Pipeline                                  */
 /* -------------------------------------------------------------------------- */
 function handleInputKey(e) {
-  if (e.key === "Enter" && e.shiftKey) {
-    return;
-  }
-  if (e.key === "Enter") {
+  if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
+    submitMessage();
   }
 }
 window.handleInputKey = handleInputKey;
@@ -262,52 +294,7 @@ async function submitMessage() {
     return;
   }
 
-  // Disable input and show loading state
-  input.disabled = true;
-  const submitBtn = document.getElementById("submit-btn");
-  if (submitBtn) submitBtn.disabled = true;
-  setRunStatus("loading", "Processing...");
-
-  try {
-    // Append user message immediately
-    appendChatBubble("user", prompt);
-    input.value = "";
-
-    // Prepare request payload
-    const payload = {
-      prompt,
-      uiSecret,
-      targetRepo,
-      targetBranch,
-      executionMode,
-      maxWorkers: parseInt(maxWorkers),
-      maxBudget: parseInt(maxBudget),
-      createPr,
-      customEnvs: JSON.parse(customEnvs)
-    };
-
-    // Submit to backend
-    const response = await fetch('/api/dispatch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
-    }
-
-    const { runId } = await response.json();
-    connectStream(runId);
-  } catch (error) {
-    console.error("Submission failed:", error);
-    setRunStatus("error", `Failed: ${error.message}`);
-    appendChatBubble("system", `Error processing request: ${error.message}`);
-  } finally {
-    // Re-enable input
-    input.disabled = false;
-    if (submitBtn) submitBtn.disabled = false;
-  }
+  input.value = "";
   input.style.height = "auto";
   document.getElementById("welcome-card")?.remove();
 
@@ -337,6 +324,8 @@ async function submitMessage() {
 
     currentSessionId = data.sessionId;
     currentRunId = data.runId;
+    localStorage.setItem("avos_active_session_id", data.sessionId);
+
     loadRecentSessions();
     connectStream(data.runId);
   } catch (err) {
@@ -360,67 +349,73 @@ function connectStream(runId) {
   eventSource = new EventSource(`/api/stream?runId=${encodeURIComponent(runId)}`);
 
   const feed = document.getElementById("chat-feed");
-  const assistantContainer = document.createElement("div");
-  assistantContainer.className = "msg-wrapper msg-assistant";
-  feed.appendChild(assistantContainer);
-
-  let streamResultBubble = null;
+  let assistantContainer = feed.querySelector(".msg-assistant:last-child");
+  if (!assistantContainer) {
+    assistantContainer = document.createElement("div");
+    assistantContainer.className = "msg-wrapper msg-assistant";
+    feed.appendChild(assistantContainer);
+  }
 
   eventSource.onmessage = (e) => {
     if (e.data.startsWith(":")) return;
     const ev = JSON.parse(e.data);
-    const { type, data, agentId } = ev;
+    renderEventToContainer(ev.type, ev.agentId, ev.data, assistantContainer);
+    feed.scrollTop = feed.scrollHeight;
 
-    if (type === "thought") {
-      const card = document.createElement("div");
-      card.className = "thought-card";
-      card.innerText = `💭 [${agentId}]: ${data.text}`;
-      assistantContainer.appendChild(card);
-    } else if (type === "tool_start") {
-      activeToolCard = document.createElement("div");
-      activeToolCard.className = "tool-card";
-      activeToolCard.innerHTML = `
-        <div class="tool-header" onclick="this.nextElementSibling.classList.toggle('open')">
-          <span class="tool-badge">🔧 ${escapeHtml(data.tool)}</span>
-          <span class="tool-toggle">[view arguments]</span>
-        </div>
-        <div class="tool-body">${escapeHtml(JSON.stringify(data.args, null, 2))}</div>
-      `;
-      assistantContainer.appendChild(activeToolCard);
-    } else if (type === "tool_end" && activeToolCard) {
-      const out = document.createElement("div");
-      out.className = "tool-body open";
-      out.innerText = `Output:\n${data.preview}`;
-      activeToolCard.appendChild(out);
-      activeToolCard = null;
-    } else if (type === "token_ledger") {
-      const counter = document.getElementById("token-counter");
-      if (counter && data.totalConsumed) {
-        counter.innerText = `${data.totalConsumed.toLocaleString()} tokens`;
-      }
-    } else if (type === "completed") {
-      streamResultBubble = document.createElement("div");
-      streamResultBubble.className = "result-bubble";
-      streamResultBubble.innerHTML = `<b>🎉 Mission Completed</b><p style="margin-top:6px;">${escapeHtml(data.summary)}</p>`;
-      assistantContainer.appendChild(streamResultBubble);
+    if (ev.type === "completed") {
       setRunStatus("active", "Completed");
       eventSource.close();
-    } else if (type === "error") {
-      const errEl = document.createElement("div");
-      errEl.className = "result-bubble";
-      errEl.style.borderColor = "var(--accent-rose)";
-      errEl.innerHTML = `<b style="color:var(--accent-rose);">❌ Mission Failed</b><p style="margin-top:6px;">${escapeHtml(data.error || data.message)}</p>`;
-      assistantContainer.appendChild(errEl);
+    } else if (ev.type === "error") {
       setRunStatus("failed", "Failed");
       eventSource.close();
     }
-
-    feed.scrollTop = feed.scrollHeight;
   };
 
   eventSource.onerror = () => {
     setRunStatus("", "Stream Closed");
   };
+}
+
+function renderEventToContainer(type, agentId, data, container) {
+  if (type === "thought" && data.text) {
+    const card = document.createElement("div");
+    card.className = "thought-card";
+    card.innerText = `💭 [${agentId}]: ${data.text}`;
+    container.appendChild(card);
+  } else if (type === "tool_start") {
+    const card = document.createElement("div");
+    card.className = "tool-card";
+    card.innerHTML = `
+      <div class="tool-header" onclick="this.nextElementSibling.classList.toggle('open')">
+        <span class="tool-badge">🔧 ${escapeHtml(data.tool)}</span>
+        <span class="tool-toggle">[view arguments]</span>
+      </div>
+      <div class="tool-body">${escapeHtml(JSON.stringify(data.args, null, 2))}</div>
+    `;
+    container.appendChild(card);
+  } else if (type === "tool_end") {
+    const card = document.createElement("div");
+    card.className = "tool-card";
+    card.innerHTML = `
+      <div class="tool-header" onclick="this.nextElementSibling.classList.toggle('open')">
+        <span class="tool-badge" style="color:var(--accent-primary);">📄 Output: ${escapeHtml(data.tool || "")}</span>
+        <span class="tool-toggle">[view output]</span>
+      </div>
+      <div class="tool-body open">${escapeHtml(data.preview || "No output")}</div>
+    `;
+    container.appendChild(card);
+  } else if (type === "completed" && data.summary) {
+    const bubble = document.createElement("div");
+    bubble.className = "result-bubble";
+    bubble.innerHTML = `<b>🎉 Mission Completed</b><p style="margin-top:6px;">${escapeHtml(data.summary)}</p>`;
+    container.appendChild(bubble);
+  } else if (type === "error") {
+    const errEl = document.createElement("div");
+    errEl.className = "result-bubble";
+    errEl.style.borderColor = "var(--accent-rose)";
+    errEl.innerHTML = `<b style="color:var(--accent-rose);">❌ Error</b><p style="margin-top:6px;">${escapeHtml(data.error || data.message)}</p>`;
+    container.appendChild(errEl);
+  }
 }
 
 function appendChatBubble(role, text) {

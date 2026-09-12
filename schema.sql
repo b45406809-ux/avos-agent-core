@@ -1,12 +1,10 @@
 -- schema.sql
 
--- Drop old tables so SQLite rebuilds them with the new columns
-DROP TABLE IF EXISTS task_states;
-DROP TABLE IF EXISTS field_guides;
+-- Drop existing tables to apply the clean schema
 DROP TABLE IF EXISTS events;
-DROP TABLE IF EXISTS runs;
 DROP TABLE IF EXISTS messages;
-DROP TABLE IF EXISTS ai_responses;
+DROP TABLE IF EXISTS runs;
+DROP TABLE IF EXISTS field_guides;
 DROP TABLE IF EXISTS sessions;
 
 -- 1. Conversation Sessions (1 repo per session)
@@ -19,27 +17,9 @@ CREATE TABLE sessions (
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
-
 CREATE INDEX idx_sessions_updated ON sessions(updated_at DESC);
 
--- 2. Unified Chat Message History with message type support
-CREATE TABLE messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL,
-    run_id TEXT,
-    role TEXT NOT NULL, -- 'user', 'assistant', 'system', 'tool'
-    type TEXT NOT NULL DEFAULT 'message', -- 'message', 'thought', 'tool_call', 'tool_result', 'final'
-    content TEXT NOT NULL,
-    metadata TEXT DEFAULT '{}', -- Additional context like tool args, results
-    timestamp INTEGER NOT NULL,
-    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-    FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_messages_session ON messages(session_id, id ASC);
-CREATE INDEX idx_messages_run ON messages(run_id, id ASC);
-
--- 3. Execution Runs
+-- 2. Execution Runs
 CREATE TABLE runs (
     id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL,
@@ -54,10 +34,37 @@ CREATE TABLE runs (
     summary TEXT,
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
-
 CREATE INDEX idx_runs_session ON runs(session_id);
 
--- 4. Stigmergic Field Guides
+-- 3. Telemetry Stream Events (Stores tool calls, thoughts, outputs)
+CREATE TABLE events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL,
+    session_id TEXT,
+    timestamp INTEGER NOT NULL,
+    type TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_events_run_seq ON events(run_id, id ASC);
+CREATE INDEX idx_events_session_seq ON events(session_id, id ASC);
+
+-- 4. Chat Messages (User prompts and final summaries)
+CREATE TABLE messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    run_id TEXT,
+    role TEXT NOT NULL, -- 'user', 'assistant', 'system'
+    type TEXT NOT NULL DEFAULT 'message',
+    content TEXT NOT NULL,
+    metadata TEXT DEFAULT '{}',
+    timestamp INTEGER NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_messages_session ON messages(session_id, id ASC);
+
+-- 5. Stigmergic Field Guides
 CREATE TABLE field_guides (
     session_id TEXT PRIMARY KEY,
     detected_stack TEXT DEFAULT 'Unknown',
@@ -66,18 +73,3 @@ CREATE TABLE field_guides (
     updated_at INTEGER NOT NULL,
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
-
--- 5. Events Table
-CREATE TABLE events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL,
-    run_id TEXT,
-    type TEXT NOT NULL, -- e.g., 'task_started', 'task_completed', 'error'
-    data TEXT DEFAULT '{}', -- Additional event data
-    timestamp INTEGER NOT NULL,
-    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-    FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_events_session ON events(session_id, id ASC);
-CREATE INDEX idx_events_run ON events(run_id, id ASC);
