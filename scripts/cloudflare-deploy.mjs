@@ -3,37 +3,124 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { hash as blake3 } from "blake3-wasm";
+import { createHash } from "node:crypto";
 import { client, verifyPermissions } from "./cloudflare-api.mjs";
 
 const exec = promisify(execFile);
 const account = process.env.CLOUDFLARE_ACCOUNT_ID;
 const c = client(process.env.CLOUDFLARE_API_TOKEN, account);
 const script = "avos-control-plane";
+const dryRun = process.argv.includes("--dry-run");
+const resume = process.argv.includes("--resume");
 if (!account) throw Error("CLOUDFLARE_ACCOUNT_ID is required");
-await verifyPermissions(c);
+const preflight = await verifyPermissions(c);
+console.log(`Connectivity preflight passed: ${preflight.checks.map(check => `${check.name} via ${check.transport}`).join(", ")}.`);
 const api = value => `/accounts/${account}${value}`;
+const requiredConfiguration = ["OWNER_GITHUB_ID", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "SESSION_HMAC_KEY", "CONTROL_REPOSITORY", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_INSTALLATION_ID", "OIDC_AUDIENCE", "CREDENTIAL_KEK", "AVOS_PRODUCTION_ORIGIN"];
+const providers = ["GEMINI_API_KEYS", "GROQ_API_KEYS", "CEREBRAS_API_KEYS", "OPENROUTER_API_KEYS", "NVIDIA_API_KEYS"];
+if (!dryRun) {
+  const missing = requiredConfiguration.filter(name => !process.env[name]);
+  if (!providers.some(name => process.env[name])) missing.push("one model-provider *_API_KEYS value");
+  if (process.env.OWNER_GITHUB_ID && !/^\d+$/.test(process.env.OWNER_GITHUB_ID)) missing.push("OWNER_GITHUB_ID must be an immutable numeric GitHub ID");
+  if (missing.length) throw Error(`Deployment stopped before mutations; configure: ${missing.join(", ")}`);
+}
 
 async function named(listPath, name, create, field = "name") {
-  const list = await c.call(api(listPath));
-  return (list.result || list).find?.(item => item[field] === name) ||
-    c.call(api(listPath), { method: "POST", body: JSON.stringify(create) });
+  const discover = async () => (await c.call(api(listPath), { operation: `discover ${name}` })).find?.(item => item[field] === name);
+  const existing = await discover();
+  if (existing || dryRun) return existing;
+  try {
+    await c.call(api(listPath), { method: "POST", body: JSON.stringify(create), operation: `create ${name}` });
+  } catch (error) {
+    // A failed POST may have reached Cloudflare. Reconcile by name before any retry.
+    error.reconciliationAttempted = true;
+    const reconciled = await discover();
+    if (reconciled) return reconciled;
+    if (error.mayHaveReached) throw error;
+    await c.call(api(listPath), { method: "POST", body: JSON.stringify(create), operation: `create ${name} after reconciliation` });
+  }
+  const verified = await discover();
+  if (!verified) throw Error(`Cloudflare accepted ${name}, but it was not present during verification`);
+  return verified;
 }
 
 const db = await named("/d1/database", "avos_swarm_db", { name: "avos_swarm_db" });
 const namespace = await named("/storage/kv/namespaces", "avos-agent-documents", { title: "avos-agent-documents" }, "title");
 const queue = await named("/queues", "avos-agent-dispatch", { queue_name: "avos-agent-dispatch" }, "queue_name");
 
-for (const file of (await fs.readdir("migrations")).filter(name => name.endsWith(".sql")).sort()) {
+const intendedBindings = ["DB (D1: avos_swarm_db)", "DOCUMENTS (KV: avos-agent-documents)", "DISPATCH_QUEUE (Queue: avos-agent-dispatch)", "RUNS (Durable Object)", "ASSETS (Workers Static Assets)"];
+if (dryRun) {
+  console.log(JSON.stringify({ mode: "dry-run", resources: {
+    d1: db ? `reuse ${db.name}` : "create avos_swarm_db",
+    kv: namespace ? `reuse ${namespace.title}` : "create avos-agent-documents",
+    queue: queue ? `reuse ${queue.queue_name}` : "create avos-agent-dispatch",
+    worker: `create or update ${script}`
+  }, bindings: intendedBindings, mutationsIssued: 0 }, null, 2));
+  process.exit(0);
+}
+
+await fs.mkdir(".avos", { recursive: true });
+const progressPath = ".avos/deployment.json";
+let progress = {};
+if (resume) try { progress = JSON.parse(await fs.readFile(progressPath, "utf8")); } catch { /* discovery remains authoritative */ }
+const migrationFiles = (await fs.readdir("migrations")).filter(name => name.endsWith(".sql")).sort();
+const migrationChecksum = createHash("sha256");
+for (const file of migrationFiles) migrationChecksum.update(file).update(await fs.readFile(path.join("migrations", file)));
+const configurationChecksum = migrationChecksum.update(JSON.stringify({ script, d1: db.uuid, kv: namespace.id, queue: queue.queue_id || queue.id, bindings: intendedBindings })).digest("hex");
+async function saveProgress(extra = {}) {
+  progress = { d1: { name: db.name, id: db.uuid }, kv: { title: namespace.title, id: namespace.id }, queue: { name: queue.queue_name, id: queue.queue_id || queue.id }, worker: { name: script, ...(progress.worker || {}) }, appliedMigrations: progress.appliedMigrations || [], configurationChecksum, ...extra };
+  await fs.writeFile(progressPath, JSON.stringify(progress, null, 2), { mode: 0o600 });
+}
+await saveProgress();
+
+// The ledger prevents replay of non-idempotent ALTER/RENAME statements. Existing
+// databases are preserved; migrations never drop tables or columns.
+await c.call(api(`/d1/database/${db.uuid}/query`), { method: "POST", operation: "ensure migration ledger", body: JSON.stringify({ sql: "CREATE TABLE IF NOT EXISTS avos_migrations (version TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at INTEGER NOT NULL)" }) });
+const ledgerResult = await c.call(api(`/d1/database/${db.uuid}/query`), { method: "POST", operation: "inspect migration ledger", body: JSON.stringify({ sql: "SELECT version, checksum FROM avos_migrations ORDER BY version" }) });
+const ledger = new Map((ledgerResult?.[0]?.results || ledgerResult?.results || []).map(row => [row.version, row.checksum]));
+const migrationSignatures = {
+  "0001_durable_kernel.sql": ["organizations:id", "events:sequence", "idempotency_keys:key"],
+  "0002_control_plane.sql": ["missions:prompt_object_key", "runs:correlation_id", "runner_leases:expires_at", "run_commands:idempotency_key"],
+  "0003_single_owner_runtime.sql": ["runner_leases:previous_token_hash", "mission_attachments:mission_id", "runs:parent_run_id"],
+  "0004_kv_document_store.sql": ["documents:kv_key", "missions:prompt_document_id", "artifact_metadata:purpose"]
+};
+async function signatureExists(signature) {
+  const [table, column] = signature.split(":");
+  const result = await c.call(api(`/d1/database/${db.uuid}/query`), { method: "POST", operation: `inspect existing ${table} schema`, body: JSON.stringify({ sql: `PRAGMA table_info(${table})` }) });
+  return (result?.[0]?.results || result?.results || []).some(row => row.name === column);
+}
+for (const file of migrationFiles) {
   const sql = await fs.readFile(path.join("migrations", file), "utf8");
-  try {
-    await c.call(api(`/d1/database/${db.uuid}/query`), { method: "POST", body: JSON.stringify({ sql }) });
-  } catch (error) {
-    if (!/duplicate column|already exists/i.test(String(error))) throw error;
+  const checksum = createHash("sha256").update(sql).digest("hex");
+  if (ledger.has(file)) {
+    if (ledger.get(file) !== checksum) throw Error(`Migration ${file} changed after it was applied; refusing destructive reconciliation`);
+    continue;
   }
+  const signatures = migrationSignatures[file] || [];
+  if (signatures.length && (await Promise.all(signatures.map(signatureExists))).every(Boolean)) {
+    // Adopt a schema created by the earlier deployer without replaying ALTERs.
+    await c.call(api(`/d1/database/${db.uuid}/query`), { method: "POST", operation: `adopt migration ${file}`, body: JSON.stringify({ sql: "INSERT INTO avos_migrations(version, checksum, applied_at) VALUES (?1, ?2, ?3)", params: [file, checksum, Date.now()] }) });
+    ledger.set(file, checksum);
+    progress.appliedMigrations = [...new Set([...(progress.appliedMigrations || []), file])];
+    await saveProgress();
+    continue;
+  }
+  if (/\bDROP\s+(TABLE|COLUMN)|\bDELETE\s+FROM|\bTRUNCATE\b/i.test(sql)) throw Error(`Migration ${file} contains a destructive statement`);
+  await c.call(api(`/d1/database/${db.uuid}/query`), { method: "POST", operation: `apply migration ${file}`, body: JSON.stringify({ sql }) });
+  await c.call(api(`/d1/database/${db.uuid}/query`), { method: "POST", operation: `record migration ${file}`, body: JSON.stringify({ sql: "INSERT INTO avos_migrations(version, checksum, applied_at) VALUES (?1, ?2, ?3)", params: [file, checksum, Date.now()] }) });
+  progress.appliedMigrations = [...new Set([...(progress.appliedMigrations || []), file])];
+  await saveProgress();
+}
+
+const requiredSchema = { missions: ["prompt_object_key", "prompt_document_id"], runs: ["correlation_id", "latest_sequence", "checkpoint_id"], attachments: ["mime_type", "size_bytes", "checksum"], runner_leases: ["run_id", "expires_at"], run_commands: ["idempotency_key"], permission_requests: ["status"], artifact_metadata: ["object_key", "checksum"], idempotency_keys: ["scope", "key"] };
+for (const [table, columns] of Object.entries(requiredSchema)) {
+  const result = await c.call(api(`/d1/database/${db.uuid}/query`), { method: "POST", operation: `verify ${table} schema`, body: JSON.stringify({ sql: `PRAGMA table_info(${table})` }) });
+  const actual = new Set((result?.[0]?.results || result?.results || []).map(row => row.name));
+  const missing = columns.filter(column => !actual.has(column));
+  if (missing.length) throw Error(`Migration verification failed: ${table} lacks ${missing.join(", ")}`);
 }
 
 await exec("npm", ["run", "build"]);
-await fs.mkdir(".avos", { recursive: true });
 await exec("node_modules/.bin/esbuild", ["apps/control-plane/src/index.ts", "--bundle", "--format=esm", "--platform=browser", "--outfile=.avos/worker.mjs"]);
 
 // Workers Static Assets are uploaded with the REST asset-session protocol. The
@@ -90,6 +177,7 @@ const plain = {
   GITHUB_APP_INSTALLATION_ID: process.env.GITHUB_APP_INSTALLATION_ID,
   GITHUB_CLIENT_ID: process.env.GITHUB_CLIENT_ID,
   OIDC_AUDIENCE: process.env.OIDC_AUDIENCE || "avos-runner",
+  AVOS_PRODUCTION_ORIGIN: process.env.AVOS_PRODUCTION_ORIGIN,
   GITHUB_WORKFLOW_REF: process.env.GITHUB_WORKFLOW_REF,
   REPOSITORY_ALLOWLIST: process.env.REPOSITORY_ALLOWLIST,
   ENVIRONMENT: "production", FREE_ONLY_MODE: "true", MAX_KV_WRITES_PER_DAY: "800",
@@ -117,7 +205,12 @@ const form = new FormData();
 form.set("metadata", new Blob([JSON.stringify(metadata)], { type: "application/json" }));
 form.set("worker.mjs", new Blob([source], { type: "application/javascript" }), "worker.mjs");
 await c.call(api(`/workers/scripts/${script}`), { method: "PUT", body: form });
+const deployedScripts = await c.call(api("/workers/scripts"), { operation: "verify Worker upload" });
+if (!deployedScripts.some(item => (item.id || item.name) === script)) throw Error("Worker upload could not be verified; it will not be repeated blindly");
 await c.call(api(`/workers/scripts/${script}/subdomain`), { method: "POST", body: JSON.stringify({ enabled: true }) });
+const workersSubdomain = await c.call(api("/workers/subdomain"), { operation: "verify workers.dev subdomain" });
+const workerUrl = workersSubdomain?.subdomain ? `https://${script}.${workersSubdomain.subdomain}.workers.dev` : undefined;
+if (!workerUrl) throw Error("workers.dev route was enabled but its URL could not be verified");
 
 // Idempotently attach the Queue consumer so messages reach the Worker's queue handler.
 const consumers = await c.call(api(`/queues/${queue.queue_id || queue.id}/consumers`));
@@ -132,5 +225,5 @@ await c.raw(api(`/storage/kv/namespaces/${namespace.id}/values/${smoke}`), { met
 const read = await (await c.raw(api(`/storage/kv/namespaces/${namespace.id}/values/${smoke}`))).text();
 if (read !== "ok") throw Error("KV smoke check returned unexpected content");
 await c.raw(api(`/storage/kv/namespaces/${namespace.id}/values/${smoke}`), { method: "DELETE" });
-await fs.writeFile(".avos/deployment.json", JSON.stringify({ accountId: account, d1: { name: "avos_swarm_db", id: db.uuid }, kv: { name: "avos-agent-documents", id: namespace.id }, queue: { name: queue.queue_name, id: queue.queue_id || queue.id }, script, freeOnly: true, deployedAt: new Date().toISOString() }, null, 2));
+await saveProgress({ worker: { name: script, url: workerUrl }, deployedAt: new Date().toISOString() });
 console.log(JSON.stringify({ database: "avos_swarm_db", documents: "avos-agent-documents", queue: queue.queue_name, script, assets: "apps/web/dist", kvSmoke: "passed", freeOnly: true, metadata: ".avos/deployment.json" }, null, 2));

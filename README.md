@@ -18,9 +18,14 @@ Create an account-scoped Cloudflare token with:
 Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, plus the owner/GitHub App values shown in `.env.example`, then run:
 
 ```sh
+npm run setup -- --dry-run # permission checks and discovery; never mutates
 npm run setup
+# If an earlier deployment was interrupted, rediscover and safely continue:
+npm run setup -- --resume
 npm run doctor
 ```
+
+Setup requires the immutable numeric `OWNER_GITHUB_ID`, OAuth client ID and secret, session signing key, control repository, GitHub App ID/private key/installation ID, OIDC audience, credential-encryption key, production origin, and at least one model-provider key. It stops before creating resources when these are incomplete. Verified resource and migration progress is written with restricted permissions to ignored `.avos/deployment.json`; credentials and request bodies are never written there. API access uses bounded native requests with family selection, transient retries, and a restricted temporary-header-file `curl` fallback for network failures. Mutations are reconciled by resource name rather than blindly replayed.
 
 Every fork owner must provision their own Cloudflare/GitHub resources and credentials. Free-plan limits can stop new heavy operations; AVOS does not fall back to paid storage. In-app counters are estimates, while Cloudflare's dashboard is authoritative. Model API use can still incur charges when a paid provider is selected. Private repositories can consume included or billed GitHub Actions minutes; public-repository standard GitHub-hosted runner use follows GitHub's current terms.
 
