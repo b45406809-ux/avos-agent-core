@@ -1,4 +1,3 @@
--- Bootstrap schema; canonical versioned migration: migrations/0001_durable_kernel.sql
 PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS organizations (id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id), external_subject TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL);

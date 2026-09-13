@@ -1,0 +1,2 @@
+export function retrieveMemories(memories, query, tokenBudget=1000){let used=0;return memories.filter(m=>!m.invalidatedAt).sort((a,b)=>(b.confidence-a.confidence)||b.lastValidationTime.localeCompare(a.lastValidationTime)).filter(m=>{const relevant=!query.repository||m.scope.repository===query.repository;if(!relevant)return false;const cost=Math.ceil(JSON.stringify(m).length/4);if(used+cost>tokenBudget)return false;used+=cost;return true;});}
+
