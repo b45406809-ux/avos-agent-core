@@ -1,0 +1,15 @@
+PRAGMA foreign_keys = ON;
+CREATE TABLE documents (id TEXT PRIMARY KEY, kv_key TEXT NOT NULL UNIQUE, content_type TEXT NOT NULL, size_bytes INTEGER NOT NULL, checksum TEXT NOT NULL, owner_id TEXT NOT NULL REFERENCES users(id), mission_id TEXT REFERENCES missions(id), run_id TEXT REFERENCES runs(id), created_at INTEGER NOT NULL, expires_at INTEGER, document_type TEXT NOT NULL CHECK(document_type IN ('prompt','attachment','checkpoint','transcript')), state TEXT NOT NULL CHECK(state IN ('pending','available','rejected')));
+CREATE INDEX idx_documents_owner_type ON documents(owner_id,document_type,created_at);
+CREATE INDEX idx_documents_run ON documents(run_id,document_type);
+CREATE TABLE attachment_uploads (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), organization_id TEXT NOT NULL REFERENCES organizations(id), filename TEXT NOT NULL, mime_type TEXT NOT NULL, size_bytes INTEGER NOT NULL, checksum TEXT NOT NULL, capability_hash TEXT NOT NULL, capability_expires_at INTEGER NOT NULL, retain INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL);
+CREATE TABLE usage_counters (key TEXT PRIMARY KEY, value INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE requirements_index (mission_id TEXT NOT NULL REFERENCES missions(id), section_id TEXT NOT NULL, byte_offset INTEGER NOT NULL, byte_length INTEGER NOT NULL, heading TEXT, PRIMARY KEY(mission_id,section_id));
+ALTER TABLE missions ADD COLUMN prompt_document_id TEXT REFERENCES documents(id);
+ALTER TABLE checkpoints ADD COLUMN object_key TEXT;
+ALTER TABLE checkpoints ADD COLUMN checksum TEXT;
+ALTER TABLE checkpoints ADD COLUMN document_id TEXT REFERENCES documents(id);
+ALTER TABLE artifact_metadata ADD COLUMN github_workflow_run_id TEXT;
+ALTER TABLE artifact_metadata ADD COLUMN artifact_name TEXT;
+ALTER TABLE artifact_metadata ADD COLUMN purpose TEXT;
+CREATE INDEX idx_events_retention ON events(timestamp);
