@@ -1,0 +1,2 @@
+import { opaqueId } from "./ids.mjs";
+export function createEvent({runId,type,payload={},sequence,taskId=null,attemptId=null,agentId="system",timestamp=new Date().toISOString()}){if(!runId||!type||!Number.isSafeInteger(sequence)||sequence<1)throw new TypeError("Invalid event envelope");return {eventId:opaqueId("event"),runId,taskId,attemptId,agentId,sequence,timestamp,type,schemaVersion:1,payload};}

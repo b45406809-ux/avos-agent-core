@@ -9,7 +9,7 @@
     "swarm": "node engine/swarm.mjs",
     "agent": "node engine/agent.mjs",
     "eval": "node harness/eval_runner.mjs",
-    "test": "node --check engine/*.mjs harness/*.mjs",
+    "test": "node --test test/*.test.mjs && node --check engine/**/*.mjs functions/api/*.js",
     "deploy": "wrangler deploy"
   },
   "keywords": [

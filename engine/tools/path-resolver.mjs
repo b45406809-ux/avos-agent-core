@@ -1,0 +1,4 @@
+import fs from "node:fs"; import path from "node:path";
+const PROTECTED=[".git",".env",".ssh",".aws",".npmrc"];
+export function resolveWorkspacePath(workspace,input,{mustExist=false}={}){if(typeof input!=="string"||input.includes("\0")||path.isAbsolute(input))throw new Error("Path must be a safe relative path");const root=fs.realpathSync(workspace);const candidate=path.resolve(root,input);if(candidate!==root&&!candidate.startsWith(root+path.sep))throw new Error("Path escapes workspace");const rel=path.relative(root,candidate).split(path.sep);if(rel.some(p=>PROTECTED.includes(p)))throw new Error("Protected path");let cursor=candidate;while(!fs.existsSync(cursor)){const parent=path.dirname(cursor);if(parent===cursor)break;cursor=parent;}const real=fs.realpathSync(cursor);if(real!==root&&!real.startsWith(root+path.sep))throw new Error("Symlink escapes workspace");if(mustExist&&!fs.existsSync(candidate))throw new Error("Path does not exist");return candidate;}
+

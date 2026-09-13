@@ -1,0 +1,4 @@
+import fs from 'node:fs'; import path from 'node:path';
+export function loadSkill(directory){const manifest=JSON.parse(fs.readFileSync(path.join(directory,'manifest.json'),'utf8'));for(const key of ['name','version','description','triggers','requiredCapabilities','allowedPaths','instructions','validationCommand','trustLevel'])if(manifest[key]===undefined)throw new TypeError(`Skill manifest requires ${key}`);return {...manifest,directory,enabled:Boolean(manifest.approvedAt&&manifest.enabled)};}
+export class SkillRegistry{constructor(){this.skills=new Map();} add(skill){this.skills.set(`${skill.name}@${skill.version}`,skill);} discover(){return [...this.skills.values()].map(({instructions,scripts,references,...metadata})=>metadata);} enable(key,approval){if(approval?.status!=='approved')throw new Error('Skill requires explicit approval');this.skills.get(key).enabled=true;}}
+
