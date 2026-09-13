@@ -1,0 +1,11 @@
+PRAGMA foreign_keys = ON;
+ALTER TABLE runner_leases ADD COLUMN previous_token_hash TEXT;
+ALTER TABLE runner_leases ADD COLUMN overlap_until INTEGER;
+ALTER TABLE attachments ADD COLUMN upload_capability_hash TEXT;
+ALTER TABLE attachments ADD COLUMN upload_expires_at INTEGER;
+ALTER TABLE runs ADD COLUMN parent_run_id TEXT REFERENCES runs(id);
+CREATE TABLE mission_attachments (mission_id TEXT NOT NULL REFERENCES missions(id), attachment_id TEXT NOT NULL REFERENCES attachments(id), PRIMARY KEY(mission_id,attachment_id));
+CREATE TABLE run_attachments (run_id TEXT NOT NULL REFERENCES runs(id), attachment_id TEXT NOT NULL REFERENCES attachments(id), PRIMARY KEY(run_id,attachment_id));
+CREATE INDEX idx_run_attachments ON run_attachments(run_id);
+CREATE UNIQUE INDEX ux_events_run_sequence ON events(run_id,sequence);
+CREATE UNIQUE INDEX ux_events_run_id ON events(run_id,id);

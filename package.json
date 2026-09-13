@@ -8,7 +8,9 @@
     "test": "node --test test/*.test.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "dev": "wrangler dev --config apps/control-plane/wrangler.toml --env local",
-    "deploy": "wrangler deploy --config apps/control-plane/wrangler.toml --env production"
+    "deploy": "node scripts/cloudflare-deploy.mjs",
+    "setup": "node scripts/setup.mjs",
+    "doctor": "node scripts/doctor.mjs"
   },
   "engines": { "node": ">=20" },
   "devDependencies": { "typescript": "^5.7.3", "wrangler": "^4.86.0" }
