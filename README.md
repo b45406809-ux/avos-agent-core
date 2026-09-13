@@ -35,3 +35,6 @@ D1 events use indexed cursor replay and should contain bounded message deltas, c
 ## Runtime flow
 
 The browser reconstructs state from a snapshot, indexed replay, then WebSocket events (SSE is also available). Dispatch contains only opaque run/correlation IDs, environment, and protocol version. The executor obtains GitHub OIDC, receives a rotating five-minute scoped lease, checks out the target repository, restores a validated checkpoint with bounded retries, invokes configured agents, refreshes its lease, handles permission decisions and cancellation, verifies changes, and publishes through a pull request by default.
+
+
+Provider credentials are delivered only after OIDC registration through the scoped runner lease; they are never workflow inputs or persisted in checkpoints and artifacts. While an agent is active, the supervisor concurrently rotates the lease and polls D1-backed commands. Cancellation aborts the model loop and child process, persists a final remote checkpoint, and exits without pushing a branch. A successful agent exit means the repository verification oracle passed; only then does the runner create a fresh branch, commit and push the changes with a repository-scoped GitHub App token, and open a pull request.

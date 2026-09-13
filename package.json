@@ -2,7 +2,10 @@
   "name": "avos-control-plane",
   "private": true,
   "type": "module",
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "build": "npm run build -w @avos/protocol && npm run build -w @avos/web",
     "test": "node --test test/*.test.mjs",
@@ -12,6 +15,12 @@
     "setup": "node scripts/setup.mjs",
     "doctor": "node scripts/doctor.mjs"
   },
-  "engines": { "node": ">=20" },
-  "devDependencies": { "typescript": "^5.7.3", "wrangler": "^4.86.0" }
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "blake3-wasm": "^2.1.5",
+    "typescript": "^5.7.3",
+    "wrangler": "^4.86.0"
+  }
 }
