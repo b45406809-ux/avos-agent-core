@@ -18,6 +18,13 @@ export const PromptReference = z.object({schemaVersion:z.literal(PROTOCOL_VERSIO
 export const RunnerRegistration = z.object({schemaVersion:z.literal(PROTOCOL_VERSION),runId:id,oidcToken:z.string().min(20),githubRunId:z.string().min(1),correlationId:id});
 export const RunnerHeartbeat = z.object({schemaVersion:z.literal(PROTOCOL_VERSION),runId:id,leaseToken:z.string().min(20),sequence:z.number().int().nonnegative(),remainingJobSeconds:z.number().int().nonnegative(),timestamp});
 export const RunnerLease = z.object({schemaVersion:z.literal(PROTOCOL_VERSION),id,runId:id,token:z.string().min(20),expiresAt:timestamp,githubRunId:z.string().min(1)});
+const repository=z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/).max(200);
+export const MissionCreate=z.object({sessionId:id.optional(),prompt:z.string().min(1).max(200_000),repository,branch:z.string().min(1).max(255).default("main"),attachmentIds:z.array(id).max(10).default([]),requirements:z.array(z.string().max(2000)).max(100).default([]),executionMode:z.enum(["single","swarm"]).default("single"),plannerModel:z.string().max(120).optional(),workerModel:z.string().max(120).optional(),workerCount:z.number().int().min(1).max(16).default(1),tokenBudget:z.number().int().positive().max(10_000_000).optional(),createPr:z.boolean().default(true)});
+export const RunDispatch=z.object({missionId:id,sessionId:id,repository,branch:z.string().min(1).max(255).default("main"),environment:z.enum(["production","preview"]).default("production")});
+export const AttachmentInitiate=z.object({filename:z.string().min(1).max(255),mimeType:z.string().min(1).max(120),size:z.number().int().positive().max(25_000_000),checksum:z.string().regex(/^[a-f0-9]{64}$/i)});
+export const AttachmentComplete=z.object({id:id,capability:z.string().min(32),checksum:z.string().regex(/^[a-f0-9]{64}$/i)});
+export const PermissionDecisionBody=z.object({requestId:id,decision:z.enum(["allow","deny"]),reason:z.string().max(2000).optional()});
+export const RunnerEvents=z.object({events:z.array(RunEvent.omit({sequence:true}).extend({sequence:z.number().int().nonnegative().optional(),localSequence:z.number().int().nonnegative().optional()})).min(1).max(100)});
 export const UsageLedger = z.object({schemaVersion:z.literal(PROTOCOL_VERSION),id,runId:id,provider:z.string(),model:z.string(),inputTokens:z.number().int().nonnegative(),outputTokens:z.number().int().nonnegative(),costUsd:z.number().nonnegative(),contextLimit:z.number().int().positive(),timestamp});
 export type RunEvent = z.infer<typeof RunEvent>; export type RunCommand = z.infer<typeof RunCommand>;
 export function parse<T extends z.ZodTypeAny>(schema:T, value:unknown):z.infer<T>{ return schema.parse(value); }

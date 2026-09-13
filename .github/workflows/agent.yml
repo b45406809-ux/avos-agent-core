@@ -22,19 +22,22 @@ jobs:
       CONTROL_PLANE_ORIGIN: ${{ vars[format('AVOS_{0}_ORIGIN', inputs.control_plane_environment)] }}
       OIDC_AUDIENCE: avos-runner
       WARM_IDLE_MS: '180000'
+      WORKSPACE_DIR: ${{ github.workspace }}/workspace
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 1, persist-credentials: false }
+        with: { fetch-depth: 1, persist-credentials: false, path: core }
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
       - name: Install deterministic runtime
+        working-directory: core
         run: npm ci --ignore-scripts
       - name: Start supervisor
         id: supervisor
         timeout-minutes: 340
         shell: bash
+        working-directory: core
         run: |
           trap 'kill -TERM "$pid" 2>/dev/null || true; wait "$pid" || true' TERM INT
           node packages/agent-runtime/src/supervisor.mjs & pid=$!

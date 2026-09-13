@@ -1,0 +1,4 @@
+export interface Env { DB:D1Database; OBJECTS:R2Bucket; RUNS:DurableObjectNamespace; DISPATCH_QUEUE:Queue; ASSETS:Fetcher; OWNER_GITHUB_LOGIN:string; OWNER_GITHUB_ID:string; GITHUB_CLIENT_ID:string; GITHUB_CLIENT_SECRET:string; SESSION_HMAC_KEY:string; CONTROL_REPOSITORY:string; CONTROL_REPOSITORY_DEFAULT_BRANCH:string; GITHUB_APP_ID:string; GITHUB_APP_PRIVATE_KEY:string; GITHUB_APP_INSTALLATION_ID:string; OIDC_AUDIENCE:string; CREDENTIAL_KEK:string; GITHUB_WORKFLOW_REF:string; REPOSITORY_ALLOWLIST?:string; ENVIRONMENT?:string }
+export type Owner={user_id:string;organization_id:string;github_id:string};
+export const json=(data:unknown,status=200,headers:HeadersInit={})=>new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json; charset=utf-8",...headers}});
+export const now=()=>Date.now();

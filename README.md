@@ -21,7 +21,11 @@ npx wrangler d1 migrations apply avos-local --local --config apps/control-plane/
 npm run dev
 ```
 
-Configure Worker secrets with `wrangler secret put`; never expose them as workflow inputs or browser storage. Required production values are documented beside the bindings in `apps/control-plane/wrangler.toml`.
+Copy `.env.example` and configure your own immutable `OWNER_GITHUB_ID`, OAuth App, GitHub App installation, Cloudflare account, and control repository. A login name is displayed only; authorization always compares GitHub's numeric user ID. Forks must never reuse another deployment's IDs, URLs, OAuth credentials, or Cloudflare resources.
+
+Run `npm run setup` for API-only, idempotent provisioning (no global Wrangler invocation), or `npm run doctor` for read-only diagnostics. The deployer reuses `avos_swarm_db`, creates or reuses `avos-agent-objects` and `avos-agent-dispatch`, applies migrations, and writes discovered IDs to ignored `.avos/deployment.json`. Configure secrets through Cloudflare's encrypted secret API/dashboard; never commit them or pass them in workflow inputs. The required Worker configuration is `OWNER_GITHUB_LOGIN`, `OWNER_GITHUB_ID`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `SESSION_HMAC_KEY`, `CONTROL_REPOSITORY`, `CONTROL_REPOSITORY_DEFAULT_BRANCH`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_INSTALLATION_ID`, `OIDC_AUDIENCE`, and `CREDENTIAL_KEK`.
+
+Set `REPOSITORY_ALLOWLIST` to a comma-separated `owner/repository` list for a personal deployment. Empty means every repository accessible to the configured GitHub App installation. GitHub App authentication is recommended. Provider credentials may instead be configured as GitHub repository/environment secrets named `GEMINI_API_KEYS`, `GROQ_API_KEYS`, `CEREBRAS_API_KEYS`, and `OPENROUTER_API_KEYS`; they are never browser-visible. AVOS software and public-repository GitHub-hosted execution can be free, but model inference may cost money unless the selected provider grants a free allowance. Planner fallback to a worker-grade model is disabled unless degraded mode is explicitly enabled.
 
 ## Lifecycle
 

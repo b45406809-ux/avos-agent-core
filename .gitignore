@@ -9,6 +9,7 @@ workspace/
 # Environment & API Keys
 .env
 .env.local
+.avos/
 *.log
 
 # System & Editor
