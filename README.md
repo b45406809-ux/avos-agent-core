@@ -1,32 +1,37 @@
-# AVOS durable agent control plane
+# AVOS agent core
 
-AVOS is a same-origin Cloudflare application for durable, authenticated coding-agent runs. The React workspace talks to one Worker. D1 is authoritative for run state and ordered events; R2 stores prompts, attachments, transcripts and checkpoints; one Durable Object per active run provides hibernating WebSocket fan-out; Queues make GitHub dispatch retryable. A GitHub-hosted supervisor authenticates with OIDC and receives a short-lived run-scoped lease.
+AVOS is a same-origin Cloudflare application for durable, authenticated coding-agent runs. The React workspace talks to one Worker. **D1 is authoritative** for ownership, document metadata, permissions, run state, ordered events, leases, counters, and checkpoint pointers. Workers KV contains only prompt, attachment, transcript, and checkpoint bytes. A Durable Object provides hibernating WebSocket fan-out, and Queues make GitHub dispatch retryable. The production application requires **Workers, D1, Workers KV, Durable Objects, and Queues**. R2 is not used.
 
-## Workspace
+## Personal, free-only deployment
 
-- `apps/web` — React/TypeScript operator workspace.
-- `apps/control-plane` — Worker API and `RunCoordinator` Durable Object.
-- `packages/protocol` — strict, versioned Zod wire schemas.
-- `packages/agent-runtime` — importable agent engine and long-lived supervisor.
-- `migrations` — ordered D1 migrations; legacy data remains available as read-only history.
-- `.github/workflows/agent.yml` — minimal-permission OIDC executor.
-- `.github/workflows/deploy.yml` — deterministic Cloudflare deployment.
+The intended setup stays on Cloudflare's Workers Free plan and does not require a credit card. `npm run setup` uses the Cloudflare REST API directly (not Wrangler) to verify access, create or reuse `avos_swarm_db`, `avos-agent-documents`, and `avos-agent-dispatch`, apply migrations, upload the Worker with D1/KV/Queue/Durable Object bindings and variables, enable its subdomain, and perform a KV write/read/delete smoke check. Ignored metadata, including the generated production KV namespace ID, is saved at `.avos/deployment.json`. The script never calls an R2 API and never requests an account upgrade or payment method.
 
-## Local development
+Create an account-scoped Cloudflare token with:
+
+* **Account — Workers Scripts: Edit** (and Read where the token UI separates it);
+* **Account — D1: Edit**;
+* **Account — Workers KV Storage: Edit**;
+* **Account — Queues: Edit**;
+* **Account — Account Settings: Read**, if required to discover the account;
+* **Zone — Workers Routes: Edit** only when configuring a custom-domain Worker route (not needed for `workers.dev`).
+
+Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, plus the owner/GitHub App values shown in `.env.example`, then run:
 
 ```sh
-npm ci
-npm run build
-npx wrangler d1 migrations apply avos-local --local --config apps/control-plane/wrangler.toml
-npm run dev
+npm run setup
+npm run doctor
 ```
 
-Copy `.env.example` and configure your own immutable `OWNER_GITHUB_ID`, OAuth App, GitHub App installation, Cloudflare account, and control repository. A login name is displayed only; authorization always compares GitHub's numeric user ID. Forks must never reuse another deployment's IDs, URLs, OAuth credentials, or Cloudflare resources.
+Every fork owner must provision their own Cloudflare/GitHub resources and credentials. Free-plan limits can stop new heavy operations; AVOS does not fall back to paid storage. In-app counters are estimates, while Cloudflare's dashboard is authoritative. Model API use can still incur charges when a paid provider is selected. Private repositories can consume included or billed GitHub Actions minutes; public-repository standard GitHub-hosted runner use follows GitHub's current terms.
 
-Run `npm run setup` for API-only, idempotent provisioning (no global Wrangler invocation), or `npm run doctor` for read-only diagnostics. The deployer reuses `avos_swarm_db`, creates or reuses `avos-agent-objects` and `avos-agent-dispatch`, applies migrations, and writes discovered IDs to ignored `.avos/deployment.json`. Configure secrets through Cloudflare's encrypted secret API/dashboard; never commit them or pass them in workflow inputs. The required Worker configuration is `OWNER_GITHUB_LOGIN`, `OWNER_GITHUB_ID`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `SESSION_HMAC_KEY`, `CONTROL_REPOSITORY`, `CONTROL_REPOSITORY_DEFAULT_BRANCH`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_INSTALLATION_ID`, `OIDC_AUDIENCE`, and `CREDENTIAL_KEK`.
+## Storage and retention
 
-Set `REPOSITORY_ALLOWLIST` to a comma-separated `owner/repository` list for a personal deployment. Empty means every repository accessible to the configured GitHub App installation. GitHub App authentication is recommended. Provider credentials may instead be configured as GitHub repository/environment secrets named `GEMINI_API_KEYS`, `GROQ_API_KEYS`, `CEREBRAS_API_KEYS`, and `OPENROUTER_API_KEYS`; they are never browser-visible. AVOS software and public-repository GitHub-hosted execution can be free, but model inference may cost money unless the selected provider grants a free allowance. Planner fallback to a worker-grade model is disabled unless degraded mode is explicitly enabled.
+Prompts are UTF-8 KV values and never workflow inputs. The default prompt limit is 2 MiB with a warning and requirements-section index above 250 KiB. Attachments are browser-SHA-256-verified, type checked, capped at 20 MiB each, 50 MiB and 20 files per mission, and normally expire after 10 days. Allowed text, document, PDF, and common image types become `validated`; archives, executables, disk images, encrypted files, and unsupported types are rejected with guidance to commit them to the target repository. No malware scanner is claimed.
 
-## Lifecycle
+KV writes happen before D1 metadata creation; a document becomes `available` only after an immediate checksum-verified read. Since KV is eventually consistent, runners retry unavailable document IDs with bounded exponential backoff. Runners never provide KV keys: authenticated routes resolve database document IDs and ownership. Checkpoints are structured JSON written only at safe boundaries, with the latest five retained per run. Restore verifies checksum, schema, mission checksum, and repository revision.
 
-The browser persists only the last observed sequence. It reconstructs normalized state from a snapshot, replay, then WebSocket events (SSE is available at `/api/runs/:id/stream`). Prompts are written to R2 before a bounded dispatch containing only the run ID, correlation ID, environment and protocol version. The executor obtains GitHub OIDC, receives a rotating five-minute lease, restores a checkpoint, streams validated events, handles approvals/cancellation, and enters a budget-aware three-minute warm window. Pull requests are the publishing default; direct pushes require a separately approved capability.
+D1 events use indexed cursor replay and should contain bounded message deltas, combined progress, summaries, and GitHub artifact references—not token-by-token text or large tool output. Detailed events and completed runs default to 30 days; session metadata and memories remain until deleted. GitHub Actions uploads complete logs, diffs, evaluations, emergency checkpoints, and diagnostics for five days, excluding credentials, cookies, leases, tokens, and environment dumps. Artifact name, workflow run ID, checksum, and purpose are registered in D1 through authenticated runner routes.
+
+## Runtime flow
+
+The browser reconstructs state from a snapshot, indexed replay, then WebSocket events (SSE is also available). Dispatch contains only opaque run/correlation IDs, environment, and protocol version. The executor obtains GitHub OIDC, receives a rotating five-minute scoped lease, checks out the target repository, restores a validated checkpoint with bounded retries, invokes configured agents, refreshes its lease, handles permission decisions and cancellation, verifies changes, and publishes through a pull request by default.

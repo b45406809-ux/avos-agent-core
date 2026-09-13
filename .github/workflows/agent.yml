@@ -42,15 +42,27 @@ jobs:
           trap 'kill -TERM "$pid" 2>/dev/null || true; wait "$pid" || true' TERM INT
           node packages/agent-runtime/src/supervisor.mjs & pid=$!
           wait "$pid"
+      - name: Prepare safe artifact directories
+        if: always()
+        run: |
+          mkdir -p avos-artifacts/{test-logs,patches,evaluations,checkpoints,diagnostics}
+          find workspace -type f -name '*.log' -maxdepth 4 -exec cp {} avos-artifacts/test-logs/ \; 2>/dev/null || true
+          git -C workspace diff --binary > avos-artifacts/patches/workspace.diff 2>/dev/null || true
+          find workspace -maxdepth 4 -type f \( -name '*evaluation*.json' -o -name '*checkpoint*.json' \) -exec cp {} avos-artifacts/evaluations/ \; 2>/dev/null || true
       - name: Emergency diagnostics
         if: failure() && steps.supervisor.outcome == 'failure'
         run: |
-          mkdir -p diagnostics
-          git status --short > diagnostics/git-status.txt
-          printf 'run=%s\nworkflow=%s\n' "$RUN_ID" "$GITHUB_RUN_ID" > diagnostics/identity.txt
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with: { name: 'avos-emergency-diagnostics', path: diagnostics, retention-days: 3 }
+          git -C workspace status --short > avos-artifacts/diagnostics/git-status.txt 2>/dev/null || true
+          printf 'run=%s\nworkflow=%s\n' "$RUN_ID" "$GITHUB_RUN_ID" > avos-artifacts/diagnostics/identity.txt
+      - name: Upload test logs, patches, evaluations, checkpoints, and diagnostics
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: avos-run-${{ inputs.run_id }}-${{ github.run_id }}
+          path: avos-artifacts
+          if-no-files-found: ignore
+          retention-days: 5
+
       - name: Terminal cleanup report
         if: always()
         run: |

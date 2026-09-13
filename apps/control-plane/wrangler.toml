@@ -8,9 +8,9 @@ binding = "DB"
 database_name = "avos-local"
 database_id = "local-placeholder"
 migrations_dir = "../../migrations"
-[[r2_buckets]]
-binding = "OBJECTS"
-bucket_name = "avos-objects-local"
+[[kv_namespaces]]
+binding = "DOCUMENTS"
+id = "LOCAL_KV_ID"
 [[durable_objects.bindings]]
 name = "RUNS"
 class_name = "RunCoordinator"
@@ -31,9 +31,9 @@ binding = "DB"
 database_name = "avos-preview"
 database_id = "PREVIEW_D1_ID"
 migrations_dir = "../../migrations"
-[[env.preview.r2_buckets]]
-binding = "OBJECTS"
-bucket_name = "avos-objects-preview"
+[[env.preview.kv_namespaces]]
+binding = "DOCUMENTS"
+id = "PREVIEW_KV_ID"
 [[env.preview.durable_objects.bindings]]
 name = "RUNS"
 class_name = "RunCoordinator"
@@ -48,9 +48,9 @@ binding = "DB"
 database_name = "avos-production"
 database_id = "PRODUCTION_D1_ID"
 migrations_dir = "../../migrations"
-[[env.production.r2_buckets]]
-binding = "OBJECTS"
-bucket_name = "avos-objects-production"
+[[env.production.kv_namespaces]]
+binding = "DOCUMENTS"
+id = "<generated production namespace ID>"
 [[env.production.durable_objects.bindings]]
 name = "RUNS"
 class_name = "RunCoordinator"
@@ -67,12 +67,23 @@ binding = "DB"
 database_name = "avos-local"
 database_id = "local-placeholder"
 migrations_dir = "../../migrations"
-[[env.local.r2_buckets]]
-binding = "OBJECTS"
-bucket_name = "avos-objects-local"
+[[env.local.kv_namespaces]]
+binding = "DOCUMENTS"
+id = "LOCAL_KV_ID"
 [[env.local.durable_objects.bindings]]
 name = "RUNS"
 class_name = "RunCoordinator"
 [[env.local.queues.producers]]
 binding = "DISPATCH_QUEUE"
 queue = "avos-dispatch-local"
+
+[vars]
+FREE_ONLY_MODE = "true"
+MAX_KV_WRITES_PER_DAY = "800"
+MAX_D1_WRITES_PER_DAY = "80000"
+MAX_D1_ROWS_READ_PER_DAY = "4000000"
+MAX_GITHUB_MINUTES_PER_MONTH = "1500"
+MAX_ATTACHMENT_BYTES = "20971520"
+MAX_MISSION_ATTACHMENT_BYTES = "52428800"
+MAX_PROMPT_BYTES = "2097152"
+TEMP_DOCUMENT_DAYS = "10"
