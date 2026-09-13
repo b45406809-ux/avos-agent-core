@@ -273,6 +273,31 @@
     </div>
   </div>
 
+  <script>
+    function handleInputKey(event) {
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        submitMessage();
+      }
+    }
+
+    function autoResizeTextarea(textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+
+    function submitMessage() {
+      const input = document.getElementById('user-input');
+      const message = input.value.trim();
+      if (message) {
+        // TODO: Implement message submission logic
+        console.log('Submitting message:', message);
+        input.value = '';
+        autoResizeTextarea(input);
+      }
+    }
+  </script>
+
   <script type="module" src="app.js"></script>
 </body>
 </html>
