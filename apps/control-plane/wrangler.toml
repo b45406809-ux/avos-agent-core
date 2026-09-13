@@ -1,0 +1,78 @@
+name = "avos-control-plane"
+main = "src/index.ts"
+compatibility_date = "2025-03-10"
+assets = { directory = "../web/dist", binding = "ASSETS", run_worker_first = ["/api/*"] }
+
+[[d1_databases]]
+binding = "DB"
+database_name = "avos-local"
+database_id = "local-placeholder"
+migrations_dir = "../../migrations"
+[[r2_buckets]]
+binding = "OBJECTS"
+bucket_name = "avos-objects-local"
+[[durable_objects.bindings]]
+name = "RUNS"
+class_name = "RunCoordinator"
+[[queues.producers]]
+binding = "DISPATCH_QUEUE"
+queue = "avos-dispatch-local"
+[[queues.consumers]]
+queue = "avos-dispatch-local"
+max_batch_size = 10
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RunCoordinator"]
+
+[env.preview]
+name = "avos-control-plane-preview"
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "avos-preview"
+database_id = "PREVIEW_D1_ID"
+migrations_dir = "../../migrations"
+[[env.preview.r2_buckets]]
+binding = "OBJECTS"
+bucket_name = "avos-objects-preview"
+[[env.preview.durable_objects.bindings]]
+name = "RUNS"
+class_name = "RunCoordinator"
+[[env.preview.queues.producers]]
+binding = "DISPATCH_QUEUE"
+queue = "avos-dispatch-preview"
+
+[env.production]
+name = "avos-control-plane"
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "avos-production"
+database_id = "PRODUCTION_D1_ID"
+migrations_dir = "../../migrations"
+[[env.production.r2_buckets]]
+binding = "OBJECTS"
+bucket_name = "avos-objects-production"
+[[env.production.durable_objects.bindings]]
+name = "RUNS"
+class_name = "RunCoordinator"
+[[env.production.queues.producers]]
+binding = "DISPATCH_QUEUE"
+queue = "avos-dispatch-production"
+# Secrets configured with `wrangler secret put`: SESSION_HMAC_KEY, GITHUB_APP_PRIVATE_KEY,
+# GITHUB_APP_ID, GITHUB_WEBHOOK_SECRET, OIDC_AUDIENCE, CREDENTIAL_KEK.
+
+[env.local]
+name = "avos-control-plane-local"
+[[env.local.d1_databases]]
+binding = "DB"
+database_name = "avos-local"
+database_id = "local-placeholder"
+migrations_dir = "../../migrations"
+[[env.local.r2_buckets]]
+binding = "OBJECTS"
+bucket_name = "avos-objects-local"
+[[env.local.durable_objects.bindings]]
+name = "RUNS"
+class_name = "RunCoordinator"
+[[env.local.queues.producers]]
+binding = "DISPATCH_QUEUE"
+queue = "avos-dispatch-local"

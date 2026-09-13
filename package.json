@@ -1,38 +1,15 @@
 {
-  "name": "avos-agent-core",
-  "version": "1.0.0",
-  "description": "Autonomous multi-agent coding swarm and execution engine with Tree-Sitter project maps, Git worktree isolation, and test oracle verification.",
+  "name": "avos-control-plane",
+  "private": true,
   "type": "module",
-  "main": "engine/swarm.mjs",
+  "workspaces": ["apps/*", "packages/*"],
   "scripts": {
-    "start": "node engine/swarm.mjs",
-    "swarm": "node engine/swarm.mjs",
-    "agent": "node engine/agent.mjs",
-    "eval": "node harness/eval_runner.mjs",
-    "test": "node --test test/*.test.mjs && node --check engine/**/*.mjs functions/api/*.js",
-    "deploy": "wrangler deploy"
+    "build": "npm run build -w @avos/protocol && npm run build -w @avos/web",
+    "test": "node --test test/*.test.mjs",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev": "wrangler dev --config apps/control-plane/wrangler.toml --env local",
+    "deploy": "wrangler deploy --config apps/control-plane/wrangler.toml --env production"
   },
-  "keywords": [
-    "ai-agent",
-    "swarm",
-    "autonomous-coding",
-    "tree-sitter",
-    "git-worktrees",
-    "llm-orchestrator",
-    "cursor-swarm",
-    "claude-code"
-  ],
-  "author": "AVOS AI Team",
-  "license": "MIT",
-  "engines": {
-    "node": ">=20.0.0"
-  },
-  "dependencies": {
-    "openai": "^4.86.1",
-    "tree-sitter-wasms": "^0.1.11",
-    "web-tree-sitter": "^0.22.6"
-  },
-  "devDependencies": {
-    "wrangler": "^4.86.0"
-  }
+  "engines": { "node": ">=20" },
+  "devDependencies": { "typescript": "^5.7.3", "wrangler": "^4.86.0" }
 }
