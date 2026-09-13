@@ -1,0 +1,1 @@
+{"name":"@avos/agent-runtime","version":"1.0.0","type":"module","exports":{".":"./src/runtime.mjs","./supervisor":"./src/supervisor.mjs"},"scripts":{"start":"node src/supervisor.mjs","typecheck":"node --check src/supervisor.mjs && node --check src/runtime.mjs"},"dependencies":{"@avos/protocol":"*","openai":"^4.86.1","tree-sitter-wasms":"^0.1.11","web-tree-sitter":"^0.22.6"}}

@@ -1,3 +1,0 @@
-name = "avos-agent-core"
-main = "engine/swarm.mjs"
-compatibility_date = "2024-01-01"
