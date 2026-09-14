@@ -233,9 +233,16 @@ const bindings = [
   ...Object.entries(plain).filter(([, text]) => text).map(([name, text]) => ({ type: "plain_text", name, text })),
   ...Object.entries(secrets).map(([name, text]) => ({ type: "secret_text", name, text }))
 ];
+
+// Check if worker already exists so we do not re-send an already applied migration tag
+const existingScripts = await c.call(api("/workers/scripts"), { operation: "check existing worker" });
+const alreadyDeployed = (existingScripts || []).some(item => (item.id || item.name) === script);
+
 const metadata = {
-  main_module: "worker.mjs", compatibility_date: "2025-03-10", bindings,
-  migrations: { new_tag: "v1", new_sqlite_classes: ["RunCoordinator"] },
+  main_module: "worker.mjs",
+  compatibility_date: "2025-03-10",
+  bindings,
+  ...(alreadyDeployed ? {} : { migrations: { new_tag: "v1", new_sqlite_classes: ["RunCoordinator"] } }),
   assets: { jwt: assetsJwt, config: { run_worker_first: ["/api/*"] } }
 };
 const form = new FormData();
