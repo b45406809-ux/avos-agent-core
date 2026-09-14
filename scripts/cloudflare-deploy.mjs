@@ -22,11 +22,31 @@ if (!ownerInput && process.stdin.isTTY) {
   rl.close();
 }
 if (!ownerInput) throw Error("BOOTSTRAP_OWNER_GITHUB_ID is required (a numeric ID or GitHub login)");
-async function githubJson(url) {
-  const response = await fetch(url, { headers: { accept: "application/vnd.github+json", "user-agent": "AVOS-Bootstrap" } });
-  if (!response.ok) throw Error(`GitHub discovery failed (${response.status})`);
-  return response.json();
+
+async function githubJson(url, retries = 3) {
+  const headers = {
+    accept: "application/vnd.github+json",
+    "user-agent": "AVOS-Bootstrap"
+  };
+  if (process.env.GITHUB_TOKEN) {
+    headers.authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  }
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const response = await fetch(url, { headers });
+      if (response.ok) return await response.json();
+      if (response.status >= 500 && attempt < retries) {
+        await new Promise(r => setTimeout(r, 2000 * attempt));
+        continue;
+      }
+      throw Error(`GitHub discovery failed (${response.status})`);
+    } catch (err) {
+      if (attempt >= retries) throw err;
+      await new Promise(r => setTimeout(r, 2000 * attempt));
+    }
+  }
 }
+
 let ownerId = ownerInput, ownerLogin;
 if (!/^\d+$/.test(ownerInput)) {
   const user = await githubJson(`https://api.github.com/users/${encodeURIComponent(ownerInput)}`);
@@ -60,7 +80,6 @@ async function named(listPath, name, create, field = "name") {
   try {
     await c.call(api(listPath), { method: "POST", body: JSON.stringify(create), operation: `create ${name}` });
   } catch (error) {
-    // A failed POST may have reached Cloudflare. Reconcile by name before any retry.
     error.reconciliationAttempted = true;
     const reconciled = await discover();
     if (reconciled) return reconciled;
@@ -101,8 +120,6 @@ async function saveProgress(extra = {}) {
 }
 await saveProgress();
 
-// The ledger prevents replay of non-idempotent ALTER/RENAME statements. Existing
-// databases are preserved; migrations never drop tables or columns.
 await c.call(api(`/d1/database/${db.uuid}/query`), { method: "POST", operation: "ensure migration ledger", body: JSON.stringify({ sql: "CREATE TABLE IF NOT EXISTS avos_migrations (version TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at INTEGER NOT NULL)" }) });
 const ledgerResult = await c.call(api(`/d1/database/${db.uuid}/query`), { method: "POST", operation: "inspect migration ledger", body: JSON.stringify({ sql: "SELECT version, checksum FROM avos_migrations ORDER BY version" }) });
 const ledger = new Map((ledgerResult?.[0]?.results || ledgerResult?.results || []).map(row => [row.version, row.checksum]));
@@ -126,7 +143,6 @@ for (const file of migrationFiles) {
   }
   const signatures = migrationSignatures[file] || [];
   if (signatures.length && (await Promise.all(signatures.map(signatureExists))).every(Boolean)) {
-    // Adopt a schema created by the earlier deployer without replaying ALTERs.
     await c.call(api(`/d1/database/${db.uuid}/query`), { method: "POST", operation: `adopt migration ${file}`, body: JSON.stringify({ sql: "INSERT INTO avos_migrations(version, checksum, applied_at) VALUES (?1, ?2, ?3)", params: [file, checksum, Date.now()] }) });
     ledger.set(file, checksum);
     progress.appliedMigrations = [...new Set([...(progress.appliedMigrations || []), file])];
@@ -151,9 +167,6 @@ for (const [table, columns] of Object.entries(requiredSchema)) {
 await exec("npm", ["run", "build"]);
 await exec("node_modules/.bin/esbuild", ["apps/control-plane/src/index.ts", "--bundle", "--format=esm", "--platform=browser", "--outfile=.avos/worker.mjs"]);
 
-// Workers Static Assets are uploaded with the REST asset-session protocol. The
-// resulting short-lived JWT is attached to the Worker upload; no Pages project
-// or R2 bucket is involved.
 async function uploadAssets(directory) {
   const names = (await fs.readdir(directory, { recursive: true })).sort();
   const entries = [];
@@ -227,13 +240,12 @@ const metadata = {
 };
 const form = new FormData();
 form.set("metadata", new Blob([JSON.stringify(metadata)], { type: "application/json" }));
-form.set("worker.mjs", new Blob([source], { type: "application/javascript" }), "worker.mjs");
+form.set("worker.mjs", new Blob([source], { type: "application/javascript+module" }), "worker.mjs");
 await c.call(api(`/workers/scripts/${script}`), { method: "PUT", body: form });
 const deployedScripts = await c.call(api("/workers/scripts"), { operation: "verify Worker upload" });
 if (!deployedScripts.some(item => (item.id || item.name) === script)) throw Error("Worker upload could not be verified; it will not be repeated blindly");
 await c.call(api(`/workers/scripts/${script}/subdomain`), { method: "POST", body: JSON.stringify({ enabled: true }) });
 
-// Idempotently attach the Queue consumer so messages reach the Worker's queue handler.
 const consumers = await c.call(api(`/queues/${queue.queue_id || queue.id}/consumers`));
 if (!(consumers.result || consumers).some?.(item => item.script_name === script)) {
   await c.call(api(`/queues/${queue.queue_id || queue.id}/consumers`), {
