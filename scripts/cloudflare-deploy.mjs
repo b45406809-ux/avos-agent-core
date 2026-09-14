@@ -213,17 +213,20 @@ const workerUrl = workersSubdomain?.subdomain ? `https://${script}.${workersSubd
 if (!workerUrl) throw Error("The workers.dev subdomain could not be discovered");
 const assetsJwt = await uploadAssets("apps/web/dist");
 const source = await fs.readFile(".avos/worker.mjs");
+
+// SETUP_NONCE_HASH is placed in plain_text so the Worker's env can read it reliably
 const plain = {
   OWNER_GITHUB_LOGIN: ownerLogin, OWNER_GITHUB_ID: ownerId,
   CONTROL_REPOSITORY: controlRepository, CONTROL_REPOSITORY_DEFAULT_BRANCH: defaultBranch,
   OIDC_AUDIENCE: oidcAudience, AVOS_PRODUCTION_ORIGIN: workerUrl, GITHUB_WORKFLOW_REF: workflowRef,
   SETUP_NONCE_EXPIRES_AT: String(setupExpires),
+  SETUP_NONCE_HASH: setupNonceHash,
   ENVIRONMENT: "production", FREE_ONLY_MODE: "true", MAX_KV_WRITES_PER_DAY: "800",
   MAX_D1_WRITES_PER_DAY: "80000", MAX_D1_ROWS_READ_PER_DAY: "4000000",
   MAX_GITHUB_MINUTES_PER_MONTH: "1500", MAX_ATTACHMENT_BYTES: "20971520",
   MAX_MISSION_ATTACHMENT_BYTES: "52428800", MAX_PROMPT_BYTES: "2097152", TEMP_DOCUMENT_DAYS: "10"
 };
-const secrets = { SESSION_HMAC_KEY: generated.SESSION_HMAC_KEY, CREDENTIAL_KEK: generated.CREDENTIAL_KEK, SETUP_NONCE_HASH: setupNonceHash };
+const secrets = { SESSION_HMAC_KEY: generated.SESSION_HMAC_KEY, CREDENTIAL_KEK: generated.CREDENTIAL_KEK };
 const bindings = [
   { type: "d1", name: "DB", id: db.uuid },
   { type: "kv_namespace", name: "DOCUMENTS", namespace_id: namespace.id },
@@ -252,7 +255,6 @@ const deployedScripts = await c.call(api("/workers/scripts"), { operation: "veri
 if (!deployedScripts.some(item => (item.id || item.name) === script)) throw Error("Worker upload could not be verified; it will not be repeated blindly");
 await c.call(api(`/workers/scripts/${script}/subdomain`), { method: "POST", body: JSON.stringify({ enabled: true }) });
 
-// Attach consumer safely with fallback/catch so error 11004 is non-fatal
 try {
   const consumersRes = await c.call(api(`/queues/${queue.queue_id || queue.id}/consumers`));
   const consumers = Array.isArray(consumersRes) ? consumersRes : (consumersRes?.result || consumersRes?.consumers || []);
@@ -269,6 +271,16 @@ try {
   if (!isAlready) throw error;
 }
 
+// Directly seed/reset setup_state in D1 database so the link works without depending on Worker state
+await c.call(api(`/d1/database/${db.uuid}/query`), {
+  method: "POST",
+  operation: "seed setup_state",
+  body: JSON.stringify({
+    sql: "INSERT INTO setup_state(id, status, nonce_hash, nonce_expires_at, updated_at) VALUES(1, 'owner_claim_pending', ?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET status='owner_claim_pending', nonce_hash=?1, nonce_expires_at=?2, nonce_used_at=NULL, updated_at=?3",
+    params: [setupNonceHash, setupExpires, Date.now()]
+  })
+});
+
 const smoke = `avos-smoke-${Date.now()}`;
 try {
   await c.raw(api(`/storage/kv/namespaces/${namespace.id}/values/${smoke}`), { method: "PUT", headers: { "content-type": "text/plain" }, body: "ok" });
@@ -276,7 +288,6 @@ try {
   if (read !== "ok") throw Error("KV smoke check returned unexpected content");
   await c.raw(api(`/storage/kv/namespaces/${namespace.id}/values/${smoke}`), { method: "DELETE" });
 } catch (error) {
-  // If smoke test temporary key cleanup has a delay, do not block completion
   if (!error.message?.includes("smoke")) console.warn("Smoke test warning:", error.message);
 }
 
