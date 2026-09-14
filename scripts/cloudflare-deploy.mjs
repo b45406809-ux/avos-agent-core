@@ -15,18 +15,41 @@ const dryRun = process.argv.includes("--dry-run");
 const resume = process.argv.includes("--resume");
 if (!account) throw Error("CLOUDFLARE_ACCOUNT_ID is required");
 if (!process.env.CLOUDFLARE_API_TOKEN) throw Error("CLOUDFLARE_API_TOKEN is required");
-let ownerInput=process.env.BOOTSTRAP_OWNER_GITHUB_ID;
-if(!ownerInput&&process.stdin.isTTY){const rl=readline.createInterface({input:process.stdin,output:process.stdout});ownerInput=await rl.question("Bootstrap owner GitHub numeric ID or login: ");rl.close()}
-if(!ownerInput)throw Error("BOOTSTRAP_OWNER_GITHUB_ID is required (a numeric ID or GitHub login)");
-async function githubJson(url){const response=await fetch(url,{headers:{accept:"application/vnd.github+json","user-agent":"AVOS-Bootstrap"}});if(!response.ok)throw Error(`GitHub discovery failed (${response.status})`);return response.json()}
-let ownerId=ownerInput,ownerLogin;
-if(!/^\d+$/.test(ownerInput)){const user=await githubJson(`https://api.github.com/users/${encodeURIComponent(ownerInput)}`);ownerId=String(user.id);ownerLogin=user.login}else{ownerLogin=(await githubJson(`https://api.github.com/user/${ownerInput}`)).login}
-const remote=(await exec("git",["config","--get","remote.origin.url"])).stdout.trim(),repositoryMatch=remote.match(/github\.com[/:]([^/]+\/[^/.]+)(?:\.git)?$/),controlRepository=process.env.CONTROL_REPOSITORY||repositoryMatch?.[1];
-if(!controlRepository)throw Error("The control repository could not be derived from the git origin");
-const repository=await githubJson(`https://api.github.com/repos/${controlRepository}`),defaultBranch=repository.default_branch;
-const oidcAudience=process.env.OIDC_AUDIENCE||"avos-runner",workflowRef=`${controlRepository}/.github/workflows/agent.yml@refs/heads/${defaultBranch}`;
-const generated={SESSION_HMAC_KEY:randomBytes(32).toString("base64"),CREDENTIAL_KEK:randomBytes(32).toString("base64"),SETUP_NONCE:randomBytes(32).toString("base64url")};
-const setupNonceHash=createHash("sha256").update(generated.SETUP_NONCE).digest("hex"),setupExpires=Date.now()+15*60*1000;
+let ownerInput = process.env.BOOTSTRAP_OWNER_GITHUB_ID;
+if (!ownerInput && process.stdin.isTTY) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  ownerInput = await rl.question("Bootstrap owner GitHub numeric ID or login: ");
+  rl.close();
+}
+if (!ownerInput) throw Error("BOOTSTRAP_OWNER_GITHUB_ID is required (a numeric ID or GitHub login)");
+async function githubJson(url) {
+  const response = await fetch(url, { headers: { accept: "application/vnd.github+json", "user-agent": "AVOS-Bootstrap" } });
+  if (!response.ok) throw Error(`GitHub discovery failed (${response.status})`);
+  return response.json();
+}
+let ownerId = ownerInput, ownerLogin;
+if (!/^\d+$/.test(ownerInput)) {
+  const user = await githubJson(`https://api.github.com/users/${encodeURIComponent(ownerInput)}`);
+  ownerId = String(user.id);
+  ownerLogin = user.login;
+} else {
+  ownerLogin = (await githubJson(`https://api.github.com/user/${ownerInput}`)).login;
+}
+const remote = (await exec("git", ["config", "--get", "remote.origin.url"])).stdout.trim(),
+  repositoryMatch = remote.match(/github\.com[/:]([^/]+\/[^/.]+)(?:\.git)?$/),
+  controlRepository = process.env.CONTROL_REPOSITORY || repositoryMatch?.[1];
+if (!controlRepository) throw Error("The control repository could not be derived from the git origin");
+const repository = await githubJson(`https://api.github.com/repos/${controlRepository}`),
+  defaultBranch = repository.default_branch;
+const oidcAudience = process.env.OIDC_AUDIENCE || "avos-runner",
+  workflowRef = `${controlRepository}/.github/workflows/agent.yml@refs/heads/${defaultBranch}`;
+const generated = {
+  SESSION_HMAC_KEY: randomBytes(32).toString("base64"),
+  CREDENTIAL_KEK: randomBytes(32).toString("base64"),
+  SETUP_NONCE: randomBytes(32).toString("base64url")
+};
+const setupNonceHash = createHash("sha256").update(generated.SETUP_NONCE).digest("hex"),
+  setupExpires = Date.now() + 15 * 60 * 1000;
 const preflight = await verifyPermissions(c);
 console.log(`Connectivity preflight passed: ${preflight.checks.map(check => `${check.name} via ${check.transport}`).join(", ")}.`);
 const api = value => `/accounts/${account}${value}`;
@@ -141,7 +164,8 @@ async function uploadAssets(directory) {
     const bytes = await fs.readFile(absolute);
     const extension = path.extname(name).slice(1);
     const digest = Buffer.from(blake3(bytes.toString("base64") + extension)).toString("hex").slice(0, 32);
-    entries.push({ name: name.replaceAll(path.sep, "/"), absolute, bytes, hash: digest, size: stat.size });
+    const assetPath = "/" + name.replaceAll(path.sep, "/").replace(/^\/+/, "");
+    entries.push({ name: assetPath, absolute, bytes, hash: digest, size: stat.size });
   }
   const manifest = Object.fromEntries(entries.map(({ name, hash, size }) => [name, { hash, size }]));
   const session = await c.call(api(`/workers/scripts/${script}/assets-upload-session`), {
@@ -186,7 +210,7 @@ const plain = {
   MAX_GITHUB_MINUTES_PER_MONTH: "1500", MAX_ATTACHMENT_BYTES: "20971520",
   MAX_MISSION_ATTACHMENT_BYTES: "52428800", MAX_PROMPT_BYTES: "2097152", TEMP_DOCUMENT_DAYS: "10"
 };
-const secrets = { SESSION_HMAC_KEY:generated.SESSION_HMAC_KEY, CREDENTIAL_KEK:generated.CREDENTIAL_KEK, SETUP_NONCE_HASH:setupNonceHash };
+const secrets = { SESSION_HMAC_KEY: generated.SESSION_HMAC_KEY, CREDENTIAL_KEK: generated.CREDENTIAL_KEK, SETUP_NONCE_HASH: setupNonceHash };
 const bindings = [
   { type: "d1", name: "DB", id: db.uuid },
   { type: "kv_namespace", name: "DOCUMENTS", namespace_id: namespace.id },
@@ -194,7 +218,7 @@ const bindings = [
   { type: "durable_object_namespace", name: "RUNS", class_name: "RunCoordinator" },
   { type: "assets", name: "ASSETS" },
   ...Object.entries(plain).filter(([, text]) => text).map(([name, text]) => ({ type: "plain_text", name, text })),
-  ...Object.entries(secrets).map(([name,text]) => ({ type: "secret_text", name, text }))
+  ...Object.entries(secrets).map(([name, text]) => ({ type: "secret_text", name, text }))
 ];
 const metadata = {
   main_module: "worker.mjs", compatibility_date: "2025-03-10", bindings,
@@ -208,7 +232,6 @@ await c.call(api(`/workers/scripts/${script}`), { method: "PUT", body: form });
 const deployedScripts = await c.call(api("/workers/scripts"), { operation: "verify Worker upload" });
 if (!deployedScripts.some(item => (item.id || item.name) === script)) throw Error("Worker upload could not be verified; it will not be repeated blindly");
 await c.call(api(`/workers/scripts/${script}/subdomain`), { method: "POST", body: JSON.stringify({ enabled: true }) });
-
 
 // Idempotently attach the Queue consumer so messages reach the Worker's queue handler.
 const consumers = await c.call(api(`/queues/${queue.queue_id || queue.id}/consumers`));
@@ -224,4 +247,5 @@ const read = await (await c.raw(api(`/storage/kv/namespaces/${namespace.id}/valu
 if (read !== "ok") throw Error("KV smoke check returned unexpected content");
 await c.raw(api(`/storage/kv/namespaces/${namespace.id}/values/${smoke}`), { method: "DELETE" });
 await saveProgress({ worker: { name: script, url: workerUrl }, deployedAt: new Date().toISOString() });
-console.log(JSON.stringify({ database:"avos_swarm_db",script,setupUrl:`${workerUrl}/setup/github/start?nonce=${generated.SETUP_NONCE}`,setupExpiresAt:new Date(setupExpires).toISOString(),next:"Open the one-time setup URL, then revoke this deployment token unless automated updates require it. For automated updates, store it only as a GitHub Actions secret in your fork." },null,2)); generated.SETUP_NONCE=""; generated.SESSION_HMAC_KEY=""; generated.CREDENTIAL_KEK="";
+console.log(JSON.stringify({ database: "avos_swarm_db", script, setupUrl: `${workerUrl}/setup/github/start?nonce=${generated.SETUP_NONCE}`, setupExpiresAt: new Date(setupExpires).toISOString(), next: "Open the one-time setup URL, then revoke this deployment token unless automated updates require it. For automated updates, store it only as a GitHub Actions secret in your fork." }, null, 2));
+generated.SETUP_NONCE = ""; generated.SESSION_HMAC_KEY = ""; generated.CREDENTIAL_KEK = "";
