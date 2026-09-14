@@ -1,19 +1,20 @@
-name: Deploy Cloudflare control plane
+name: Validate Cloudflare control plane
 on:
-  push: { branches: [main] }
+  pull_request:
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  deploy:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: npm }
       - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm test
       - run: npm run build
-      - run: npx wrangler d1 migrations apply avos-production --remote --config apps/control-plane/wrangler.toml --env production
-        env: { CLOUDFLARE_API_TOKEN: '${{ secrets.CLOUDFLARE_API_TOKEN }}', CLOUDFLARE_ACCOUNT_ID: '${{ secrets.CLOUDFLARE_ACCOUNT_ID }}' }
-      - run: npx wrangler deploy --config apps/control-plane/wrangler.toml --env production
-        env: { CLOUDFLARE_API_TOKEN: '${{ secrets.CLOUDFLARE_API_TOKEN }}', CLOUDFLARE_ACCOUNT_ID: '${{ secrets.CLOUDFLARE_ACCOUNT_ID }}' }
+# Bootstrap deployment is intentionally local and interactive. Never pass bootstrap
+# credentials as workflow_dispatch inputs. Store a scoped token as a repository
+# secret only if a fork owner deliberately adds an authenticated update workflow.
