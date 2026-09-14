@@ -57,8 +57,7 @@ class_name = "RunCoordinator"
 [[env.production.queues.producers]]
 binding = "DISPATCH_QUEUE"
 queue = "avos-dispatch-production"
-# Secrets configured with `wrangler secret put`: SESSION_HMAC_KEY, GITHUB_APP_PRIVATE_KEY,
-# GITHUB_APP_ID, GITHUB_WEBHOOK_SECRET, OIDC_AUDIENCE, CREDENTIAL_KEK.
+# Bootstrap uploads SESSION_HMAC_KEY, CREDENTIAL_KEK, and SETUP_NONCE_HASH directly as encrypted Worker secret bindings. GitHub App and provider credentials are encrypted into D1 during owner-only setup.
 
 [env.local]
 name = "avos-control-plane-local"

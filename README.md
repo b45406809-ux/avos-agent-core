@@ -15,19 +15,32 @@ Create an account-scoped Cloudflare token with:
 * **Account — Account Settings: Read**, if required to discover the account;
 * **Zone — Workers Routes: Edit** only when configuring a custom-domain Worker route (not needed for `workers.dev`).
 
-Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, plus the owner/GitHub App values shown in `.env.example`, then run:
+Set only `CLOUDFLARE_ACCOUNT_ID`, a narrowly scoped `CLOUDFLARE_API_TOKEN`, and `BOOTSTRAP_OWNER_GITHUB_ID` (numeric ID or GitHub login), then run:
 
 ```sh
-npm run setup -- --dry-run # permission checks and discovery; never mutates
-npm run setup
-# If an earlier deployment was interrupted, rediscover and safely continue:
-npm run setup -- --resume
-npm run doctor
+CLOUDFLARE_ACCOUNT_ID=… CLOUDFLARE_API_TOKEN=… BOOTSTRAP_OWNER_GITHUB_ID=octocat npm run setup
 ```
 
-Setup requires the immutable numeric `OWNER_GITHUB_ID`, OAuth client ID and secret, session signing key, control repository, GitHub App ID/private key/installation ID, OIDC audience, credential-encryption key, production origin, and at least one model-provider key. It stops before creating resources when these are incomplete. Verified resource and migration progress is written with restricted permissions to ignored `.avos/deployment.json`; credentials and request bodies are never written there. API access uses bounded native requests with family selection, transient retries, and a restricted temporary-header-file `curl` fallback for network failures. Mutations are reconciled by resource name rather than blindly replayed.
+The bootstrap resolves the login to its immutable numeric GitHub ID, derives the fork, default branch, workflow identity, workers.dev origin, and stable `avos-runner` audience, and generates the session key, credential-encryption key, and a 15-minute one-time setup nonce with cryptographically secure randomness. Generated values are uploaded directly as encrypted Worker secret bindings. Only the nonce hash is retained by the Worker, and no secret is written to `.avos/deployment.json`.
 
-Every fork owner must provision their own Cloudflare/GitHub resources and credentials. Free-plan limits can stop new heavy operations; AVOS does not fall back to paid storage. In-app counters are estimates, while Cloudflare's dashboard is authoritative. Model API use can still incur charges when a paid provider is selected. Private repositories can consume included or billed GitHub Actions minutes; public-repository standard GitHub-hosted runner use follows GitHub's current terms.
+Open the single setup URL printed by the deployment script. It is single-use, expires after 15 minutes, and is restricted to the configured owner. AVOS then creates a private GitHub App through GitHub's manifest flow. Each fork creates its own App with only Metadata read, Actions read/write, Contents read/write, and Pull requests read/write. The returned private key and client secret are encrypted immediately and never enter browser JavaScript. Install the App on the AVOS fork and at least one target repository; the installation callback discovers its ID automatically.
+
+In **Settings → Models and providers**, add Gemini, Groq, OpenRouter, Cerebras, or NVIDIA credentials. Key pools are split into individually encrypted AES-GCM records in D1, validated before enablement, and never displayed again. Runners call the lease-authenticated provider proxy, so model keys do not enter GitHub Actions. Choose qualified planner and worker models, budgets, fallbacks, compaction model, and degraded-mode policy before running the control-plane and agent smoke checks.
+
+A fresh-fork setup is therefore:
+
+1. Fork AVOS.
+2. Create the scoped Cloudflare token described above.
+3. Run the bootstrap deployment script with the three bootstrap values.
+4. Open the printed one-time setup URL.
+5. Create and authorize the per-fork GitHub App through the manifest flow.
+6. Install it on the fork and selected target repositories.
+7. Sign in as the configured GitHub owner.
+8. Add and validate a model-provider credential in encrypted settings.
+9. Configure provider routing and run diagnostics.
+10. Run a successful smoke mission and a cancellation smoke mission.
+
+After bootstrap, revoke the deployment token. If automated future updates need it, store it only as a GitHub Actions secret in the fork—not as an AVOS runtime credential. AVOS can deploy in `setup_required` mode without any provider credential, but mission creation and dispatch remain disabled until GitHub and qualified planner/worker models pass validation. Setup progresses explicitly through `cloudflare_ready`, `owner_claim_pending`, `github_app_pending`, `github_installation_pending`, `provider_pending`, `smoke_test_pending`, `ready`, or an owner-selected permitted `degraded` state.
 
 ## Storage and retention
 
@@ -42,4 +55,4 @@ D1 events use indexed cursor replay and should contain bounded message deltas, c
 The browser reconstructs state from a snapshot, indexed replay, then WebSocket events (SSE is also available). Dispatch contains only opaque run/correlation IDs, environment, and protocol version. The executor obtains GitHub OIDC, receives a rotating five-minute scoped lease, checks out the target repository, restores a validated checkpoint with bounded retries, invokes configured agents, refreshes its lease, handles permission decisions and cancellation, verifies changes, and publishes through a pull request by default.
 
 
-Provider credentials are delivered only after OIDC registration through the scoped runner lease; they are never workflow inputs or persisted in checkpoints and artifacts. While an agent is active, the supervisor concurrently rotates the lease and polls D1-backed commands. Cancellation aborts the model loop and child process, persists a final remote checkpoint, and exits without pushing a branch. A successful agent exit means the repository verification oracle passed; only then does the runner create a fresh branch, commit and push the changes with a repository-scoped GitHub App token, and open a pull request.
+Provider calls are brokered by the control plane after OIDC registration through the scoped runner lease; raw provider credentials are never sent to the runner, workflow inputs, checkpoints, or artifacts. While an agent is active, the supervisor concurrently rotates the lease and polls D1-backed commands. Cancellation aborts the model loop and child process, persists a final remote checkpoint, and exits without pushing a branch. A successful agent exit means the repository verification oracle passed; only then does the runner create a fresh branch, commit and push the changes with a repository-scoped GitHub App token, and open a pull request.
