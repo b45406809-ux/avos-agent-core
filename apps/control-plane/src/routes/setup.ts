@@ -87,19 +87,48 @@ export async function publicSetupRoutes(req: Request, env: Env) {
       setup_on_update: true,
       public: false,
       request_oauth_on_install: true,
-      default_permissions: { metadata: "read", actions: "write", contents: "write", pull_requests: "write" },
+      default_permissions: {
+        metadata: "read",
+        actions: "write",
+        contents: "write",
+        pull_requests: "write",
+      },
       default_events: [],
     };
 
-    return new Response(
-      `<form id="f" method="post" action="https://github.com/settings/apps/new"><input type="hidden" name="manifest" value='${JSON.stringify(manifest).replaceAll("'", "&#39;")}'></form><script>document.getElementById("f").submit()</script>`,
-      {
-        headers: {
-          "content-type": "text/html; charset=utf-8",
-          "content-security-policy": "default-src 'none'; form-action https://github.com; script-src 'unsafe-inline'",
-        },
-      }
-    );
+    const actionUrl = `https://github.com/settings/apps/new?state=${encodeURIComponent(manifestState)}`;
+
+    const html = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Registering AVOS GitHub App...</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #c9d1d9; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0;">
+  <div style="text-align: center; max-width: 480px; padding: 2rem;">
+    <h2>Redirecting to GitHub App Registration...</h2>
+    <p style="color: #8b949e; margin-bottom: 2rem;">Preparing your secure manifest parameters.</p>
+    <form id="f" method="post" action="${actionUrl}">
+      <input type="hidden" name="manifest" id="manifest_input">
+      <button type="submit" id="btn" style="padding: 12px 24px; font-size: 16px; font-weight: 600; background: #238636; color: #fff; border: 1px solid rgba(240,246,252,0.1); border-radius: 6px; cursor: pointer;">
+        Click here to continue to GitHub
+      </button>
+    </form>
+  </div>
+  <script>
+    const manifestData = ${JSON.stringify(manifest)};
+    document.getElementById("manifest_input").value = JSON.stringify(manifestData);
+    document.getElementById("f").submit();
+  </script>
+</body>
+</html>`;
+
+    return new Response(html, {
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+      },
+    });
   }
 
   if (p === "/setup/github/callback" && req.method === "GET") {
