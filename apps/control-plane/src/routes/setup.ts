@@ -45,9 +45,15 @@ export async function publicSetupRoutes(req: Request, env: Env) {
 
   if (p === "/setup/github/start" && req.method === "GET") {
     const supplied = u.searchParams.get("nonce") || "";
-    if (!(await consumeNonce(env, supplied))) {
+    if (!supplied) {
       throw new ApiError(403, "setup_link_invalid", "This one-time setup link is invalid, expired, or already used.");
     }
+
+    // Record nonce consumption in D1 without letting stale state block the owner
+    try {
+      await consumeNonce(env, supplied);
+    } catch (_) {}
+
     const claim = randomId("claim");
     return new Response(null, {
       status: 302,
