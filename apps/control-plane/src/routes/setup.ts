@@ -110,7 +110,9 @@ export async function publicSetupRoutes(req: Request, env: Env) {
     <h2>Redirecting to GitHub App Registration...</h2>
     <p style="color: #8b949e; margin-bottom: 2rem;">Preparing your secure manifest parameters.</p>
     <form id="f" method="post" action="${actionUrl}">
-      <input type="hidden" name="manifest" id="manifest_input">
+      <div style="display: none;">
+        <input type="text" name="manifest" id="manifest_input">
+      </div>
       <button type="submit" id="btn" style="padding: 12px 24px; font-size: 16px; font-weight: 600; background: #238636; color: #fff; border: 1px solid rgba(240,246,252,0.1); border-radius: 6px; cursor: pointer;">
         Click here to continue to GitHub
       </button>
