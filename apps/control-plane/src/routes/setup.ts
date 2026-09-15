@@ -49,7 +49,6 @@ export async function publicSetupRoutes(req: Request, env: Env) {
       throw new ApiError(403, "setup_link_invalid", "This one-time setup link is invalid, expired, or already used.");
     }
 
-    // Record nonce consumption in D1 without letting stale state block the owner
     try {
       await consumeNonce(env, supplied);
     } catch (_) {}
@@ -78,7 +77,10 @@ export async function publicSetupRoutes(req: Request, env: Env) {
     const manifest = {
       name: `avos-${crypto.randomUUID().slice(0, 8)}`,
       url: origin,
-      hook_attributes: { active: false },
+      hook_attributes: {
+        active: false,
+        url: `${origin}/api/github/webhook`,
+      },
       redirect_url: `${origin}/setup/github/callback?state=${encodeURIComponent(manifestState)}`,
       callback_urls: [`${origin}/api/auth/github/callback`],
       setup_url: `${origin}/setup/github/installation`,
